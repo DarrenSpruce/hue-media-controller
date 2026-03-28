@@ -70,6 +70,8 @@ class MediaController:
         self.ir = self.config.get("ir_codes", {})
         self.timing = self.config.get("timing", {})
         self.dimmer = None
+        self._tv_on = False  # Track TV power state (toggle remote)
+        self._on_button_handled = False  # Track if ON press already handled by short press
 
     # -----------------------------------------------------------------
     # Configuration
@@ -236,19 +238,42 @@ class MediaController:
             button_name: "on", "dim_up", "dim_down", "off"
             event_type: "initial_press", "short_release", "long_release", "repeat"
         """
-        # We act on initial_press for responsive feel
-        if event_type not in ("initial_press",):
+        # ON button: short press = mode toggle, long press = TV toggle override
+        if button_name == "on":
+            if event_type == "initial_press":
+                self._on_button_handled = False  # Reset; wait for release type
+                return
+            elif event_type == "short_release":
+                if self._on_button_handled:
+                    return
+                self._on_button_handled = True
+                logger.info("🔘 Button: on (short press) | Mode: %s | TV: %s",
+                            self.mode.value, "on" if self._tv_on else "off")
+                self._handle_on()
+                return
+            elif event_type == "long_release":
+                if self._on_button_handled:
+                    return
+                self._on_button_handled = True
+                logger.info("🔘 Button: on (LONG press) | Toggling TV override")
+                self._handle_tv_toggle()
+                return
+            else:
+                return
+
+        # All other buttons: act on initial_press for responsive feel
+        if event_type != "initial_press":
             return
 
         if self._debounce():
             logger.debug("Debounced: %s %s", button_name, event_type)
             return
 
-        logger.info("🔘 Button: %s (%s) | Mode: %s", button_name, event_type, self.mode.value)
+        logger.info("🔘 Button: %s (%s) | Mode: %s | TV: %s",
+                    button_name, event_type, self.mode.value,
+                    "on" if self._tv_on else "off")
 
-        if button_name == "on":
-            self._handle_on()
-        elif button_name == "dim_up":
+        if button_name == "dim_up":
             self._handle_volume_up()
         elif button_name == "dim_down":
             self._handle_volume_down()
@@ -259,11 +284,11 @@ class MediaController:
 
     def _handle_on(self):
         """
-        Handle the ON button press.
+        Handle short press of the ON button.
 
-        - If OFF → switch to AUDIO mode
-        - If AUDIO → switch to CINEMA mode
-        - If CINEMA → switch to AUDIO mode
+        - If OFF → switch to AUDIO mode (TV stays off)
+        - If AUDIO → switch to CINEMA mode (TV turns on)
+        - If CINEMA → switch to AUDIO mode (TV turns off)
         """
         if self.mode == SystemMode.OFF:
             self._activate_audio_mode()
@@ -271,6 +296,20 @@ class MediaController:
             self._activate_cinema_mode()
         elif self.mode == SystemMode.CINEMA:
             self._activate_audio_mode()
+
+    def _handle_tv_toggle(self):
+        """
+        Handle long press of the ON button — toggle TV on/off
+        without changing the sound mode. Useful to re-sync if
+        the TV state got out of step with our tracking.
+        """
+        tv_code = self.ir.get("tv", {}).get("power_on", "") or self.ir.get("tv", {}).get("power_off", "")
+        if tv_code:
+            self.broadlink.send_ir(tv_code)
+            self._tv_on = not self._tv_on
+            logger.info("📺 TV toggled → %s", "ON" if self._tv_on else "OFF")
+        else:
+            logger.warning("No TV power IR code configured")
 
     def _handle_volume_up(self):
         """Handle DIM UP button - increase volume in current mode."""
@@ -305,14 +344,16 @@ class MediaController:
         logger.info("🔴 Shutting down all systems...")
         ir_delay = self.timing.get("ir_command_delay", 0.5)
 
-        # Turn off MXN10 (regardless of mode - safe to call even if off)
+        # Turn off MXN10 (safe to call even if already off)
         self.streamer.power_off()
 
-        # Turn off TV
-        tv_off = self.ir.get("tv", {}).get("power_off", "")
-        if tv_off:
-            self.broadlink.send_ir(tv_off)
-            time.sleep(ir_delay)
+        # Toggle TV off only if we think it's on
+        if self._tv_on:
+            tv_code = self.ir.get("tv", {}).get("power_off", "") or self.ir.get("tv", {}).get("power_on", "")
+            if tv_code:
+                self.broadlink.send_ir(tv_code)
+                self._tv_on = False
+                time.sleep(ir_delay)
 
         # Turn off home cinema
         cinema_off = self.ir.get("home_cinema", {}).get("power_off", "")
@@ -338,11 +379,13 @@ class MediaController:
 
         # If coming from CINEMA, shut down cinema-specific gear
         if self.mode == SystemMode.CINEMA:
-            # Turn off TV
-            tv_off = self.ir.get("tv", {}).get("power_off", "")
-            if tv_off:
-                self.broadlink.send_ir(tv_off)
-                time.sleep(ir_delay)
+            # Toggle TV off if it's on
+            if self._tv_on:
+                tv_code = self.ir.get("tv", {}).get("power_off", "") or self.ir.get("tv", {}).get("power_on", "")
+                if tv_code:
+                    self.broadlink.send_ir(tv_code)
+                    self._tv_on = False
+                    time.sleep(ir_delay)
 
             # Turn off home cinema
             cinema_off = self.ir.get("home_cinema", {}).get("power_off", "")
@@ -383,11 +426,13 @@ class MediaController:
         self.streamer.power_on()
         time.sleep(power_settle)
 
-        # Turn on TV
-        tv_on = self.ir.get("tv", {}).get("power_on", "")
-        if tv_on:
-            self.broadlink.send_ir(tv_on)
-            time.sleep(ir_delay)
+        # Turn on TV (only if not already on)
+        if not self._tv_on:
+            tv_code = self.ir.get("tv", {}).get("power_on", "") or self.ir.get("tv", {}).get("power_off", "")
+            if tv_code:
+                self.broadlink.send_ir(tv_code)
+                self._tv_on = True
+                time.sleep(ir_delay)
 
         # Turn on home cinema
         cinema_on = self.ir.get("home_cinema", {}).get("power_on", "")
