@@ -69,6 +69,7 @@ class MediaController:
         # IR code shortcuts
         self.ir = self.config.get("ir_codes", {})
         self.timing = self.config.get("timing", {})
+        self.dimmer = None
 
     # -----------------------------------------------------------------
     # Configuration
@@ -154,11 +155,11 @@ class MediaController:
 
         # Find the dimmer switch
         dimmer_name = self.config["hue"].get("dimmer_name", "Dimmer")
-        dimmer = self.hue.find_dimmer_switch(dimmer_name)
-        if not dimmer:
+        self.dimmer = self.hue.find_dimmer_switch(dimmer_name)
+        if not self.dimmer:
             logger.error("Could not find dimmer switch '%s'", dimmer_name)
             return False
-        logger.info("Dimmer switch ready: %s (buttons: %s)", dimmer["name"], list(dimmer["button_ids"].keys()))
+        logger.info("Dimmer switch ready: %s (buttons: %s)", self.dimmer["name"], list(self.dimmer["button_ids"].keys()))
 
         # --- Broadlink ---
         if not self.broadlink.connect():
@@ -411,6 +412,8 @@ class MediaController:
         reconnect_delay = self.timing.get("reconnect_delay", 5)
         self.hue.listen_events(
             callback=self.handle_button,
+            dimmer_device_id=self.dimmer["id"],
+            button_id_map=self.dimmer["button_ids"],
             reconnect_delay=reconnect_delay,
         )
 

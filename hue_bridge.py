@@ -38,6 +38,8 @@ class HueBridge:
         self.base_url = f"https://{bridge_ip}"
         self._session = requests.Session()
         self._session.verify = False  # Hue Bridge uses self-signed cert
+        self._dimmer_device_id = ""
+        self._button_rid_to_control: dict = {}
 
     # -----------------------------------------------------------------
     # Authentication
@@ -174,7 +176,13 @@ class HueBridge:
     # -----------------------------------------------------------------
     # Event Stream (SSE)
     # -----------------------------------------------------------------
-    def listen_events(self, callback: Callable[[str, str], None], reconnect_delay: float = 5.0):
+    def listen_events(
+        self,
+        callback: Callable[[str, str], None],
+        dimmer_device_id: str = "",
+        button_id_map: Optional[dict] = None,
+        reconnect_delay: float = 5.0,
+    ):
         """
         Listen to the Hue Bridge event stream for button press events.
 
@@ -184,8 +192,16 @@ class HueBridge:
             callback: Function called with (button_name, event_type) where
                       button_name is one of: "on", "dim_up", "dim_down", "off"
                       event_type is one of: "initial_press", "repeat", "short_release", "long_release"
+            dimmer_device_id: The device ID of the target dimmer switch to filter events.
+            button_id_map: Dict mapping button resource ID -> control_id (1-4).
             reconnect_delay: Seconds to wait before reconnecting after a disconnect.
         """
+        self._dimmer_device_id = dimmer_device_id
+        # Reverse map: button resource id -> control_id
+        self._button_rid_to_control = {}
+        if button_id_map:
+            for control_id, rid in button_id_map.items():
+                self._button_rid_to_control[rid] = control_id
         url = f"{self.base_url}/eventstream/clip/v2"
         headers = {
             "hue-application-key": self.api_key,
@@ -239,22 +255,32 @@ class HueBridge:
                 if item.get("type") != "button":
                     continue
 
-                # Extract button info
-                button_report = item.get("button", {})
-                event_type = button_report.get("button_report", {}).get("event")
-                if not event_type:
-                    # Try alternate structure
-                    event_type = button_report.get("last_event")
-
-                control_id = item.get("metadata", {}).get("control_id")
+                # Filter by owner device - only process events from our dimmer
                 owner = item.get("owner", {})
+                if self._dimmer_device_id and owner.get("rid") != self._dimmer_device_id:
+                    continue
+
+                # Extract event type from button report
+                button_data = item.get("button", {})
+                event_type = button_data.get("button_report", {}).get("event")
+                if not event_type:
+                    event_type = button_data.get("last_event")
+
+                # Look up control_id from the button resource ID
+                button_rid = item.get("id", "")
+                control_id = self._button_rid_to_control.get(button_rid)
 
                 if control_id is not None and event_type:
                     button_name = BUTTON_MAP.get(control_id, f"unknown_{control_id}")
-                    logger.debug(
+                    logger.info(
                         "Button event: %s (%s) control_id=%d",
                         button_name,
                         event_type,
                         control_id,
                     )
                     callback(button_name, event_type)
+                elif event_type:
+                    logger.warning(
+                        "Unknown button resource %s (not in our map)",
+                        button_rid,
+                    )
