@@ -325,8 +325,8 @@ class MediaController:
         """
         Handle DIM UP button.
 
-        Short press: MXN10 +5 steps / home cinema 3x IR burst.
-        Press & hold (repeat): MXN10 +1 step / home cinema 1x IR.
+        Short press: MXN10 +5 steps / home cinema 5x IR burst.
+        Press & hold (repeat): MXN10 +1 step / home cinema 5x IR burst.
         """
         if self.mode == SystemMode.OFF:
             logger.info("System is off, ignoring volume up")
@@ -338,18 +338,17 @@ class MediaController:
         elif self.mode == SystemMode.CINEMA:
             ir_code = self.ir.get("home_cinema", {}).get("volume_up", "")
             if ir_code:
-                repeats = 1 if held else 3
-                for i in range(repeats):
+                for i in range(5):
                     self.broadlink.send_ir(ir_code)
-                    if i < repeats - 1:
-                        time.sleep(0.15)
+                    if i < 4:
+                        time.sleep(0.1)
 
     def _handle_volume_down(self, held: bool = False):
         """
         Handle DIM DOWN button.
 
-        Short press: MXN10 -5 steps / home cinema 3x IR burst.
-        Press & hold (repeat): MXN10 -1 step / home cinema 1x IR.
+        Short press: MXN10 -5 steps / home cinema 5x IR burst.
+        Press & hold (repeat): MXN10 -1 step / home cinema 5x IR burst.
         """
         if self.mode == SystemMode.OFF:
             logger.info("System is off, ignoring volume down")
@@ -361,11 +360,10 @@ class MediaController:
         elif self.mode == SystemMode.CINEMA:
             ir_code = self.ir.get("home_cinema", {}).get("volume_down", "")
             if ir_code:
-                repeats = 1 if held else 3
-                for i in range(repeats):
+                for i in range(5):
                     self.broadlink.send_ir(ir_code)
-                    if i < repeats - 1:
-                        time.sleep(0.15)
+                    if i < 4:
+                        time.sleep(0.1)
 
     def _handle_off(self):
         """Handle OFF button - shut down everything."""
