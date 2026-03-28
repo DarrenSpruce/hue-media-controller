@@ -1,0 +1,23 @@
+[Unit]
+Description=Hue Media Controller - Dimmer Switch to Home Cinema/HiFi
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=darrenspruce
+WorkingDirectory=/home/darrenspruce/hue-media-controller
+ExecStart=/home/darrenspruce/hue-media-controller/venv/bin/python controller.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/darrenspruce/hue-media-controller
+
+[Install]
+WantedBy=multi-user.target

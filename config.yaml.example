@@ -1,0 +1,65 @@
+# =============================================================================
+# Hue Media Controller - Configuration
+# =============================================================================
+# Copy this file to config.yaml and fill in your details.
+# Run `python learn_ir.py` to capture IR codes from your remotes.
+# =============================================================================
+
+# --- Philips Hue Bridge ---
+hue:
+  bridge_ip: "192.168.1.XXX"        # IP address of your Hue Bridge
+  # api_key will be auto-generated on first run (press bridge button when prompted)
+  api_key: ""
+  # The dimmer switch name as it appears in the Hue app (used to find the right device)
+  dimmer_name: "Dimmer switch"
+
+# --- Broadlink RM (IR Transmitter) ---
+broadlink:
+  # Leave empty to auto-discover, or set for faster startup
+  device_ip: ""
+  # Timeout for device discovery (seconds)
+  discover_timeout: 5
+
+# --- Yamaha MXN10E (MusicCast Streamer) ---
+musiccast:
+  host: "192.168.1.XXX"             # IP address of the MXN10E
+  zone: "main"                       # MusicCast zone (usually "main")
+  volume_step: 5                     # Volume increment/decrement per button press
+  max_volume: 100                    # Safety limit for max volume
+  default_input: "optical1"          # Default input when switching to audio mode
+  power_on_delay: 3                  # Seconds to wait after powering on
+
+# --- IR Codes ---
+# These are Base64-encoded IR packets captured from your remotes.
+# Run `python learn_ir.py` to capture them.
+ir_codes:
+  tv:
+    power_on: ""
+    power_off: ""
+  home_cinema:
+    power_on: ""
+    power_off: ""
+    volume_up: ""
+    volume_down: ""
+  audio_switch:
+    # Input switching commands for your audio/TV switch
+    input_tv: ""                     # Switch to TV/cinema audio path
+    input_streamer: ""               # Switch to MXN10E/music audio path
+
+# --- Timing ---
+timing:
+  # Debounce: ignore duplicate button presses within this window (seconds)
+  debounce_seconds: 0.4
+  # Delay between sequential IR commands (seconds)
+  ir_command_delay: 0.5
+  # Time to wait for devices to power on before sending further commands (seconds)
+  power_on_settle: 3
+  # Polling interval for Hue event stream reconnection (seconds)
+  reconnect_delay: 5
+
+# --- Logging ---
+logging:
+  level: "INFO"                      # DEBUG, INFO, WARNING, ERROR
+  file: "hue_media_controller.log"
+  max_bytes: 5242880                 # 5 MB
+  backup_count: 3
