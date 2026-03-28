@@ -261,23 +261,33 @@ class MediaController:
             else:
                 return
 
-        # All other buttons: act on initial_press for responsive feel
-        if event_type != "initial_press":
+        # Volume buttons: initial_press = big step, repeat = small continuous steps
+        if button_name in ("dim_up", "dim_down"):
+            if event_type == "initial_press":
+                held = False
+            elif event_type == "repeat":
+                held = True
+            else:
+                return
+
+            logger.info("🔘 Button: %s (%s) | Mode: %s",
+                        button_name, event_type, self.mode.value)
+
+            if button_name == "dim_up":
+                self._handle_volume_up(held=held)
+            else:
+                self._handle_volume_down(held=held)
             return
 
-        if self._debounce():
-            logger.debug("Debounced: %s %s", button_name, event_type)
+        # OFF button: act on initial_press
+        if event_type != "initial_press":
             return
 
         logger.info("🔘 Button: %s (%s) | Mode: %s | TV: %s",
                     button_name, event_type, self.mode.value,
                     "on" if self._tv_on else "off")
 
-        if button_name == "dim_up":
-            self._handle_volume_up()
-        elif button_name == "dim_down":
-            self._handle_volume_down()
-        elif button_name == "off":
+        if button_name == "off":
             self._handle_off()
         else:
             logger.warning("Unknown button: %s", button_name)
@@ -311,29 +321,51 @@ class MediaController:
         else:
             logger.warning("No TV power IR code configured")
 
-    def _handle_volume_up(self):
-        """Handle DIM UP button - increase volume in current mode."""
+    def _handle_volume_up(self, held: bool = False):
+        """
+        Handle DIM UP button.
+
+        Short press: MXN10 +5 steps / home cinema 3x IR burst.
+        Press & hold (repeat): MXN10 +1 step / home cinema 1x IR.
+        """
         if self.mode == SystemMode.OFF:
             logger.info("System is off, ignoring volume up")
             return
 
         if self.mode == SystemMode.AUDIO:
-            self.streamer.volume_up()
+            steps = 1 if held else 5
+            self.streamer.volume_up(steps=steps)
         elif self.mode == SystemMode.CINEMA:
             ir_code = self.ir.get("home_cinema", {}).get("volume_up", "")
-            self.broadlink.send_ir(ir_code)
+            if ir_code:
+                repeats = 1 if held else 3
+                for i in range(repeats):
+                    self.broadlink.send_ir(ir_code)
+                    if i < repeats - 1:
+                        time.sleep(0.15)
 
-    def _handle_volume_down(self):
-        """Handle DIM DOWN button - decrease volume in current mode."""
+    def _handle_volume_down(self, held: bool = False):
+        """
+        Handle DIM DOWN button.
+
+        Short press: MXN10 -5 steps / home cinema 3x IR burst.
+        Press & hold (repeat): MXN10 -1 step / home cinema 1x IR.
+        """
         if self.mode == SystemMode.OFF:
             logger.info("System is off, ignoring volume down")
             return
 
         if self.mode == SystemMode.AUDIO:
-            self.streamer.volume_down()
+            steps = 1 if held else 5
+            self.streamer.volume_down(steps=steps)
         elif self.mode == SystemMode.CINEMA:
             ir_code = self.ir.get("home_cinema", {}).get("volume_down", "")
-            self.broadlink.send_ir(ir_code)
+            if ir_code:
+                repeats = 1 if held else 3
+                for i in range(repeats):
+                    self.broadlink.send_ir(ir_code)
+                    if i < repeats - 1:
+                        time.sleep(0.15)
 
     def _handle_off(self):
         """Handle OFF button - shut down everything."""
