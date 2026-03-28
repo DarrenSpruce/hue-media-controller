@@ -337,7 +337,7 @@ class MediaController:
 
     def _handle_off(self):
         """Handle OFF button - shut down everything."""
-        if self.mode == SystemMode.OFF:
+        if self.mode == SystemMode.OFF and not self._tv_on:
             logger.info("System already off")
             return
 
@@ -352,14 +352,16 @@ class MediaController:
             tv_code = self.ir.get("tv", {}).get("power_off", "") or self.ir.get("tv", {}).get("power_on", "")
             if tv_code:
                 self.broadlink.send_ir(tv_code)
-                self._tv_on = False
                 time.sleep(ir_delay)
 
         # Turn off home cinema
-        cinema_off = self.ir.get("home_cinema", {}).get("power_off", "")
-        if cinema_off:
-            self.broadlink.send_ir(cinema_off)
+        if self.mode != SystemMode.OFF:
+            cinema_off = self.ir.get("home_cinema", {}).get("power_off", "")
+            if cinema_off:
+                self.broadlink.send_ir(cinema_off)
 
+        # Always reset state cleanly
+        self._tv_on = False
         self.mode = SystemMode.OFF
         logger.info("✅ System is now OFF")
 
