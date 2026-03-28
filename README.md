@@ -14,11 +14,11 @@ Control your home cinema and hi-fi system using a Philips Hue Dimmer Switch.
                                         └──────────┼───────┼───────────────┘
                                                    │       │
                                     ┌──────────────┘       └────────────┐
-                                    │ IR (Broadlink)                    │ HTTP (MusicCast)
+                                    │ IR (Broadlink)                    │ HTTP (StreamMagic)
                                     ▼                                   ▼
                           ┌───────────────┐                   ┌──────────────┐
-                          │  Broadlink RM │                   │ Yamaha       │
-                          │  (IR Blaster) │                   │ MXN10E       │
+                          │  Broadlink RM │                   │ Cambridge    │
+                          │  (IR Blaster) │                   │ Audio MXN10  │
                           └───┬───┬───┬───┘                   └──────────────┘
                               │   │   │
                     ┌─────────┘   │   └─────────┐
@@ -60,7 +60,7 @@ nano config.yaml
 
 Fill in your device IPs:
 - **Hue Bridge IP** — find in Hue app: Settings → My Hue system → tap bridge
-- **MXN10E IP** — find in MusicCast app or your router's DHCP table
+- **MXN10 IP** — find in Cambridge Audio StreamMagic app or your router's DHCP table
 - **Broadlink IP** — optional (auto-discovers), or check your router
 
 ### 3. Learn IR Codes
@@ -104,7 +104,7 @@ journalctl -u hue-media-controller -f
 |------|---------|
 | `controller.py` | Main app — state machine, button handlers, mode orchestration |
 | `hue_bridge.py` | Hue Bridge API v2 — registration, dimmer discovery, SSE event stream |
-| `musiccast.py` | Yamaha MusicCast API — power, volume, input control for MXN10E |
+| `streammagic.py` | Cambridge Audio StreamMagic API — power, volume, source for MXN10 |
 | `broadlink_ir.py` | Broadlink RM — IR code sending and learning |
 | `learn_ir.py` | Interactive IR code capture utility |
 | `config.yaml.example` | Template configuration (copy to `config.yaml`) |
@@ -121,9 +121,9 @@ journalctl -u hue-media-controller -f
 - Check `hue.dimmer_name` in config.yaml matches the name in your Hue app
 - The app logs all found devices — check the log for correct name
 
-### "MXN10E connection failed"
-- Verify MXN10E is powered on and on the network
-- Test: `curl http://<mxn10e-ip>/YamahaExtendedControl/v1/system/getDeviceInfo`
+### "MXN10 connection failed"
+- Verify MXN10 is powered on and on the network
+- Test: `curl http://<mxn10-ip>/smoip/system/info`
 
 ### Volume not working in Cinema mode
 - Re-learn IR codes: `python learn_ir.py`
@@ -131,6 +131,6 @@ journalctl -u hue-media-controller -f
 
 ## Customisation
 
-- **Volume step**: Change `musiccast.volume_step` (default: 5)
-- **MXN10E inputs**: `optical1`, `optical2`, `coaxial1`, `line1`, `bluetooth`, `airplay`, `spotify`, etc.
+- **Volume step**: Change `streamer.volume_step` (default: 1)
+- **MXN10 sources**: `IR`, `MEDIA_PLAYER`, `AIRPLAY`, `SPOTIFY`, `BLUETOOTH`, `CAST`, `ROON`, `TIDAL`, `QOBUZ`, etc.
 - **Add modes**: Add a new `SystemMode` enum value and activation method in `controller.py`

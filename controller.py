@@ -4,7 +4,7 @@ Hue Media Controller - Main Application.
 Listens for Philips Hue Dimmer Switch button presses and orchestrates
 a home cinema / hi-fi system with two modes:
 
-  AUDIO MODE:  MXN10E streamer → audio switch → speakers
+  AUDIO MODE:  Cambridge Audio MXN10 streamer → audio switch → speakers
   CINEMA MODE: TV + Home Cinema system → audio switch → speakers
 
 The "On" button toggles between modes. Volume buttons are context-aware.
@@ -22,7 +22,7 @@ import yaml
 
 from broadlink_ir import BroadlinkIR
 from hue_bridge import HueBridge
-from musiccast import MusicCast
+from streammagic import StreamMagic
 
 logger = logging.getLogger("hue_media_controller")
 
@@ -60,11 +60,10 @@ class MediaController:
             device_ip=self.config["broadlink"].get("device_ip", ""),
             discover_timeout=self.config["broadlink"].get("discover_timeout", 5),
         )
-        self.musiccast = MusicCast(
-            host=self.config["musiccast"]["host"],
-            zone=self.config["musiccast"].get("zone", "main"),
-            volume_step=self.config["musiccast"].get("volume_step", 5),
-            max_volume=self.config["musiccast"].get("max_volume", 100),
+        self.streamer = StreamMagic(
+            host=self.config["streamer"]["host"],
+            volume_step=self.config["streamer"].get("volume_step", 1),
+            max_volume=self.config["streamer"].get("max_volume", 80),
         )
 
         # IR code shortcuts
@@ -90,7 +89,7 @@ class MediaController:
         # Validate required fields
         required = [
             ("hue", "bridge_ip"),
-            ("musiccast", "host"),
+            ("streamer", "host"),
         ]
         for section, key in required:
             value = config.get(section, {}).get(key, "")
@@ -166,19 +165,19 @@ class MediaController:
             logger.error("Could not connect to Broadlink IR transmitter")
             return False
 
-        # --- MusicCast ---
+        # --- Cambridge Audio MXN10 (StreamMagic) ---
         try:
-            info = self.musiccast.get_device_info()
+            info = self.streamer.get_device_info()
             if "error" in info:
-                logger.error("Could not reach MXN10E at %s", self.config["musiccast"]["host"])
+                logger.error("Could not reach MXN10 at %s", self.config["streamer"]["host"])
                 return False
             logger.info(
-                "MXN10E ready: %s (model: %s)",
-                info.get("device_id", "unknown"),
-                info.get("model_name", "unknown"),
+                "MXN10 ready: %s (model: %s)",
+                info.get("name", "unknown"),
+                info.get("model", "unknown"),
             )
         except Exception as e:
-            logger.error("MXN10E connection failed: %s", e)
+            logger.error("MXN10 connection failed: %s", e)
             return False
 
         # Check IR codes
@@ -279,7 +278,7 @@ class MediaController:
             return
 
         if self.mode == SystemMode.AUDIO:
-            self.musiccast.volume_up()
+            self.streamer.volume_up()
         elif self.mode == SystemMode.CINEMA:
             ir_code = self.ir.get("home_cinema", {}).get("volume_up", "")
             self.broadlink.send_ir(ir_code)
@@ -291,7 +290,7 @@ class MediaController:
             return
 
         if self.mode == SystemMode.AUDIO:
-            self.musiccast.volume_down()
+            self.streamer.volume_down()
         elif self.mode == SystemMode.CINEMA:
             ir_code = self.ir.get("home_cinema", {}).get("volume_down", "")
             self.broadlink.send_ir(ir_code)
@@ -305,8 +304,8 @@ class MediaController:
         logger.info("🔴 Shutting down all systems...")
         ir_delay = self.timing.get("ir_command_delay", 0.5)
 
-        # Turn off MXN10E (regardless of mode - safe to call even if off)
-        self.musiccast.power_off()
+        # Turn off MXN10 (regardless of mode - safe to call even if off)
+        self.streamer.power_off()
 
         # Turn off TV
         tv_off = self.ir.get("tv", {}).get("power_off", "")
@@ -350,14 +349,10 @@ class MediaController:
                 self.broadlink.send_ir(cinema_off)
                 time.sleep(ir_delay)
 
-        # Power on MXN10E
-        if not self.musiccast.is_powered_on():
-            self.musiccast.power_on()
-            time.sleep(self.config["musiccast"].get("power_on_delay", power_settle))
-
-        # Set MXN10E input
-        default_input = self.config["musiccast"].get("default_input", "optical1")
-        self.musiccast.set_input(default_input)
+        # Power on MXN10
+        if not self.streamer.is_powered_on():
+            self.streamer.power_on()
+            time.sleep(self.config["streamer"].get("power_on_delay", power_settle))
 
         # Switch audio/TV switch to streamer input
         switch_code = self.ir.get("audio_switch", {}).get("input_streamer", "")
@@ -365,7 +360,7 @@ class MediaController:
             self.broadlink.send_ir(switch_code)
 
         self.mode = SystemMode.AUDIO
-        logger.info("✅ AUDIO mode active (MXN10E → speakers)")
+        logger.info("✅ AUDIO mode active (MXN10 → speakers)")
 
     def _activate_cinema_mode(self):
         """
@@ -378,9 +373,9 @@ class MediaController:
         ir_delay = self.timing.get("ir_command_delay", 0.5)
         power_settle = self.timing.get("power_on_settle", 3)
 
-        # Put MXN10E to standby (if it was on from audio mode)
-        if self.musiccast.is_powered_on():
-            self.musiccast.power_off()
+        # Put MXN10 to standby (if it was on from audio mode)
+        if self.streamer.is_powered_on():
+            self.streamer.power_off()
 
         # Turn on TV
         tv_on = self.ir.get("tv", {}).get("power_on", "")

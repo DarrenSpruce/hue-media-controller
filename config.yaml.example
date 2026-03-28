@@ -20,13 +20,11 @@ broadlink:
   # Timeout for device discovery (seconds)
   discover_timeout: 5
 
-# --- Yamaha MXN10E (MusicCast Streamer) ---
-musiccast:
-  host: "192.168.1.XXX"             # IP address of the MXN10E
-  zone: "main"                       # MusicCast zone (usually "main")
-  volume_step: 5                     # Volume increment/decrement per button press
-  max_volume: 100                    # Safety limit for max volume
-  default_input: "optical1"          # Default input when switching to audio mode
+# --- Cambridge Audio MXN10 (StreamMagic Streamer) ---
+streamer:
+  host: "192.168.1.XXX"             # IP address of the MXN10
+  volume_step: 1                     # Volume steps per button press
+  max_volume: 80                     # Safety limit for max volume percentage
   power_on_delay: 3                  # Seconds to wait after powering on
 
 # --- IR Codes ---
