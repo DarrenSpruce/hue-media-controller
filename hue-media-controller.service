@@ -5,9 +5,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=darrenspruce
-WorkingDirectory=/home/darrenspruce/hue-media-controller
-ExecStart=/home/darrenspruce/hue-media-controller/venv/bin/python controller.py
+User=pi
+WorkingDirectory=/home/pi/hue-media-controller
+ExecStart=/home/pi/hue-media-controller/venv/bin/python controller.py
 Restart=always
 RestartSec=10
 StandardOutput=journal
@@ -17,7 +17,7 @@ StandardError=journal
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=/home/darrenspruce/hue-media-controller
+ReadWritePaths=/home/pi/hue-media-controller
 
 [Install]
 WantedBy=multi-user.target
