@@ -367,16 +367,21 @@ class MediaController:
         """
         Activate CINEMA mode.
 
-        Powers on TV and home cinema, switches audio input to cinema,
-        and puts MXN10E to standby.
+        Powers on TV and home cinema, switches audio input to cinema.
+        Power-cycles the MXN10 to wake the amp (it auto-sleeps), then
+        keeps it on so the amp stays powered.
         """
         logger.info("🎬 Activating CINEMA mode...")
         ir_delay = self.timing.get("ir_command_delay", 0.5)
         power_settle = self.timing.get("power_on_settle", 3)
 
-        # Put MXN10 to standby (if it was on from audio mode)
+        # Power-cycle the MXN10 to wake the amp (it sleeps after inactivity)
         if self.streamer.is_powered_on():
+            logger.info("Power-cycling MXN10 to wake amp...")
             self.streamer.power_off()
+            time.sleep(2)
+        self.streamer.power_on()
+        time.sleep(power_settle)
 
         # Turn on TV
         tv_on = self.ir.get("tv", {}).get("power_on", "")
@@ -399,7 +404,7 @@ class MediaController:
         time.sleep(power_settle)
 
         self.mode = SystemMode.CINEMA
-        logger.info("✅ CINEMA mode active (TV + Home Cinema → speakers)")
+        logger.info("✅ CINEMA mode active (TV + Home Cinema → speakers, MXN10 keeping amp awake)")
 
     # -----------------------------------------------------------------
     # Main Loop
