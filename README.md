@@ -2,6 +2,11 @@
 
 Control your home cinema and hi-fi system using a Philips Hue Dimmer Switch.
 
+> **Live deployment:** the version actually running in the lounge is the Home
+> Assistant setup in [`homeassistant/`](homeassistant/README.md). The Python
+> `controller.py` here is the original standalone implementation and remains a
+> working alternative.
+
 ## How It Works
 
 ```
@@ -9,24 +14,34 @@ Control your home cinema and hi-fi system using a Philips Hue Dimmer Switch.
 │ Hue Dimmer  │──────│ Hue Bridge│──SSE─│     Raspberry Pi                 │
 │   Switch    │ Zigbee│           │ HTTP │   ┌──────────────────────────┐   │
 └─────────────┘      └───────────┘      │   │   Hue Media Controller   │   │
-                                        │   └──────┬───────┬───────────┘   │
-                                        │          │       │               │
-                                        └──────────┼───────┼───────────────┘
-                                                   │       │
-                                    ┌──────────────┘       └────────────┐
-                                    │ IR (Broadlink)                    │ HTTP (StreamMagic)
-                                    ▼                                   ▼
-                          ┌───────────────┐                   ┌──────────────┐
-                          │  Broadlink RM │                   │ Cambridge    │
-                          │  (IR Blaster) │                   │ Audio MXN10  │
-                          └───┬───┬───┬───┘                   └──────────────┘
-                              │   │   │
-                    ┌─────────┘   │   └─────────┐
-                    ▼             ▼               ▼
-              ┌──────────┐ ┌───────────┐  ┌─────────────┐
-              │    TV    │ │Home Cinema│  │Audio Switch  │
-              └──────────┘ └───────────┘  └─────────────┘
+                                        │   └───┬────────┬────────┬────┘   │
+                                        │       │        │        │         │
+                        ┌───────────────┼───────┘        │        │         │
+                        │ (Indicator)   │               │        │         │
+                        │ Hue Light     │               │        │         │
+                        └───────────────┘    ┌──────────┘        │         │
+                                            │ (Network API)      │         │
+                      ┌─────────────────────┼──────┐  ┌──────────┘         │
+                      │ IR (Broadlink)      │      │  │ (HTTP/StreamMagic)  │
+                      ▼                     ▼      ▼  ▼                      ▼
+        ┌───────────────────┐    ┌──────────────────┐ ┌──────────────┐
+        │  Broadlink RM     │    │  Philips Android │ │ Cambridge    │
+        │  (IR Blaster)     │    │  TV (JointSpace) │ │ Audio MXN10  │
+        └───┬───┬───┬───────┘    └──────────────────┘ └──────────────┘
+            │   │   │
+  ┌─────────┘   │   └─────────┐
+  ▼             ▼               ▼
+┌──────────┐ ┌───────────┐  ┌─────────────┐
+│    TV    │ │Home Cinema│  │Audio Switch  │
+│(optional)└─┤  Receiver │  │              │
+└──────────┘ └───────────┘  └─────────────┘
 ```
+
+**Key improvements:**
+- **Network TV control** via Philips JointSpace API (no more IR sync issues!)
+- **Real-time TV state** — no more tracking guesses
+- **Visual feedback** — Hue indicator light shows current mode
+- **Graceful fallback** — IR codes still work if network unavailable
 
 ## Button Mapping
 
@@ -62,6 +77,8 @@ Fill in your device IPs:
 - **Hue Bridge IP** — find in Hue app: Settings → My Hue system → tap bridge
 - **MXN10 IP** — find in Cambridge Audio StreamMagic app or your router's DHCP table
 - **Broadlink IP** — optional (auto-discovers), or check your router
+- **Philips TV IP** — find in your router's DHCP table or on the TV itself (Settings → Network → IP Address)
+- **Indicator light name** — exact name from your Hue app (e.g. "Hue color lamp 2")
 
 ### 3. Learn IR Codes
 
@@ -103,14 +120,22 @@ journalctl -u hue-media-controller -f
 | File | Purpose |
 |------|---------|
 | `controller.py` | Main app — state machine, button handlers, mode orchestration |
-| `hue_bridge.py` | Hue Bridge API v2 — registration, dimmer discovery, SSE event stream |
+| `hue_bridge.py` | Hue Bridge API v2 — registration, dimmer discovery, SSE event stream, light control |
 | `streammagic.py` | Cambridge Audio StreamMagic API — power, volume, source for MXN10 |
+| `tv_control.py` | **NEW:** Philips Android TV JointSpace API — power, input switching, real state queries |
 | `broadlink_ir.py` | Broadlink RM — IR code sending and learning |
 | `learn_ir.py` | Interactive IR code capture utility |
 | `config.yaml.example` | Template configuration (copy to `config.yaml`) |
 | `hue-media-controller.service` | systemd unit file for auto-start on boot |
 
 ## Troubleshooting
+
+### TV not connecting (Philips Android)
+- Ensure TV is powered on and on the same network
+- Check TV IP: Settings → Network → IP Address or check your router
+- Test network connection: `curl http://<tv-ip>:1925/1/system`
+- The default credentials are usually `user:pass` — if changed on your TV, update `config.yaml`
+- If network connection fails, the app gracefully falls back to IR codes
 
 ### "No Broadlink devices found"
 - Ensure the Broadlink RM is on the same network/subnet as the Pi
@@ -120,6 +145,10 @@ journalctl -u hue-media-controller -f
 ### "Could not find dimmer switch"
 - Check `hue.dimmer_name` in config.yaml matches the name in your Hue app
 - The app logs all found devices — check the log for correct name
+
+### "Could not find indicator light"
+- Verify the light name in `indicator_light.name` matches exactly (case-insensitive)
+- Check the light exists in your Hue app
 
 ### "MXN10 connection failed"
 - Verify MXN10 is powered on and on the network

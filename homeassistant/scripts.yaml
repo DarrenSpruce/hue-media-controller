@@ -1,0 +1,303 @@
+# ─── Media System Scripts ─────────────────────────────────────────────────────
+# TV power: discrete IR on/off via Broadlink (always works, even when TV WiFi is asleep)
+# TV state: read from Cast (media_player.65oled865_12) — accurate when TV is on
+# MXN10: native Cambridge Audio integration (media_player.mxn10_2e_2)
+# IR: Broadlink for TV, home cinema amp, and audio switch
+
+# ── IR Code Reference ────────────────────────────────────────────────────────
+# TV power on:       discrete ON (not toggle)
+# TV power off:      discrete OFF (not toggle)
+# Home cinema on:    discrete ON
+# Home cinema off:   discrete OFF
+# Cinema volume up:  volume +
+# Cinema volume down: volume -
+# Audio switch → TV:       switch to TV/cinema input
+# Audio switch → streamer: switch to MXN10/music input
+
+# ── Activate Audio Mode ──────────────────────────────────────────────────────
+activate_audio_mode:
+  mode: restart
+  alias: "Activate Audio Mode"
+  icon: mdi:music
+  description: "Power on MXN10 streamer, switch audio to streamer input. If coming from Cinema, turn off TV and home cinema amp."
+  sequence:
+    # If coming from Cinema mode, turn off cinema gear
+    - if:
+        - condition: state
+          entity_id: input_select.media_system_mode
+          state: "Cinema"
+      then:
+        # Turn off TV via discrete IR off
+        - action: shell_command.tv_power_off
+          continue_on_error: true
+        - delay: 0.5
+        # Turn off home cinema amp via discrete IR off
+        - action: remote.send_command
+          target:
+            entity_id: remote.ir_universal_remote_hub
+          data:
+            command: "b64:JgBIAAABHY8REhATERMREhESERMQFBE1ERISEhETEBMRNhE1ETcREhA3EDYRNxA2ETYRExATETYQExESERQQExATEDcQNhETEgANBQ=="
+        - delay: 0.5
+    # Power on MXN10
+    - action: rest_command.mxn10_power_on
+    - delay: 3
+    # Switch audio to streamer input
+    - action: remote.send_command
+      target:
+        entity_id: remote.ir_universal_remote_hub
+      data:
+        command: "b64:JgBYAAABHZEREhISEhISEhISERITEhI1EjYSNhI2EjYSNRI2EjYSEhI2ETcREhI3ETYTERISEhIRExISEjUTEhESEjcRNhI2EgAE6QABHkgSAAvuAAEdSRIADQU="
+    # Update state
+    - service: input_select.select_option
+      data:
+        entity_id: input_select.media_system_mode
+        option: Audio
+
+    - action: light.turn_on
+      target:
+        entity_id: light.hue_color_lamp_2
+      data:
+        brightness_pct: 25
+        xy_color: [0.13, 0.13]
+# ── Activate Cinema Mode ─────────────────────────────────────────────────────
+activate_cinema_mode:
+  mode: restart
+  alias: "Activate Cinema Mode"
+  icon: mdi:filmstrip
+  description: "Power-cycle MXN10 to wake home cinema amp, turn on TV via IR, switch audio to TV input."
+  sequence:
+    # Power-cycle MXN10 (off then on) to wake the amp via trigger
+    - action: rest_command.mxn10_power_off
+    - delay: 2
+    - action: rest_command.mxn10_power_on
+    - delay: 3
+    # Turn on TV via discrete IR on (works even when TV WiFi is asleep)
+    - action: script.tv_wake
+    - delay: 3
+    # Turn on home cinema amp via discrete IR on
+    - action: remote.send_command
+      target:
+        entity_id: remote.ir_universal_remote_hub
+      data:
+        command: "b64:JgBUAAQABhoAAR2PERIRGQsTERIRExETERIRNxESERMRExESETYSNhE3ERIRExA3ERMQNxETERIRNxE2EjURExE3EBMQOBE2EBQREhEABYQAAR1JEQANBQ=="
+    - delay: 0.5
+    # Switch audio to TV input
+    - action: remote.send_command
+      target:
+        entity_id: remote.ir_universal_remote_hub
+      data:
+        command: "b64:JgBIAAABHo8SEhISEhISERMSEhIREhI3ETYTNRI2EjYRNxI2EjYREhMSEjUSExE2EjYSEhISEhISNRMSEjUSExISETYTNRI2EgANBQ=="
+    # Update state
+    - service: input_select.select_option
+      data:
+        entity_id: input_select.media_system_mode
+        option: Cinema
+
+    - action: light.turn_on
+      target:
+        entity_id: light.hue_color_lamp_2
+      data:
+        brightness_pct: 25
+        color_temp_kelvin: 2500
+# ── System Off ────────────────────────────────────────────────────────────────
+media_system_off:
+  mode: restart
+  alias: "Media System Off"
+  icon: mdi:power
+  description: "Turn everything off. Discrete IR off commands — safe to repeat."
+  sequence:
+    # Always turn off MXN10
+    - action: rest_command.mxn10_power_off
+    # Always turn off home cinema amp (discrete IR off)
+    - action: remote.send_command
+      target:
+        entity_id: remote.ir_universal_remote_hub
+      data:
+        command: "b64:JgBIAAABHY8REhATERMREhESERMQFBE1ERISEhETEBMRNhE1ETcREhA3EDYRNxA2ETYRExATETYQExESERQQExATEDcQNhETEgANBQ=="
+    - delay: 0.5
+    # Turn off TV via discrete IR off (always safe to send)
+    - action: shell_command.tv_power_off
+      continue_on_error: true
+    # Reset mode
+    - service: input_select.select_option
+      data:
+        entity_id: input_select.media_system_mode
+        option: "Off"
+
+    - action: light.turn_off
+      target:
+        entity_id: light.hue_color_lamp_2
+# ── Toggle TV (long-press override) ──────────────────────────────────────────
+toggle_tv:
+  mode: restart
+  alias: "Toggle TV"
+  icon: mdi:television
+  description: "Toggle TV on/off using discrete IR codes based on Cast state."
+  sequence:
+    - if:
+        - condition: template
+          value_template: "{{ states('media_player.65oled865_12') in ['off', 'unavailable', 'unknown'] }}"
+      then:
+        # TV is off → discrete IR on
+        - action: script.tv_wake
+      else:
+        # TV is on → discrete IR off
+        - action: shell_command.tv_power_off
+          continue_on_error: true
+# ── Volume Up (Tap — short press) ────────────────────────────────────────────
+media_volume_up_tap:
+  alias: "Media Volume Up (Tap)"
+  icon: mdi:volume-plus
+  description: "Short press volume up — MXN10 +3 steps in Audio, 2 IR pulses in Cinema."
+  sequence:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Audio"
+          sequence:
+            - repeat:
+                count: 3
+                sequence:
+                  - action: rest_command.mxn10_volume_up
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Cinema"
+          sequence:
+            - repeat:
+                count: 2
+                sequence:
+                  - action: remote.send_command
+                    target:
+                      entity_id: remote.ir_universal_remote_hub
+                    data:
+                      command: "b64:JgCIAAABHZAQExESERMRExESERMQFBE2ERMREhETERIRNxE3ETYQExI2EDcRNhEUEBMREhE3ETYRExESERMRNxA2ETcRExAUEQAFgwABHkcSAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREADQU="
+                  - delay: 0.15
+
+# ── Volume Up (Hold — repeat events) ─────────────────────────────────────────
+media_volume_up_hold:
+  alias: "Media Volume Up (Hold)"
+  icon: mdi:volume-plus
+  mode: single
+  description: "Hold volume up — MXN10 +1 step in Audio, 1 IR pulse in Cinema."
+  sequence:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Audio"
+          sequence:
+            - action: rest_command.mxn10_volume_up
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Cinema"
+          sequence:
+            - action: remote.send_command
+              target:
+                entity_id: remote.ir_universal_remote_hub
+              data:
+                command: "b64:JgCIAAABHZAQExESERMRExESERMQFBE2ERMREhETERIRNxE3ETYQExI2EDcRNhEUEBMREhE3ETYRExESERMRNxA2ETcRExAUEQAFgwABHkcSAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREADQU="
+
+# ── Volume Down (Tap — short press) ──────────────────────────────────────────
+media_volume_down_tap:
+  alias: "Media Volume Down (Tap)"
+  icon: mdi:volume-minus
+  description: "Short press volume down — MXN10 -3 steps in Audio, 2 IR pulses in Cinema."
+  sequence:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Audio"
+          sequence:
+            - repeat:
+                count: 3
+                sequence:
+                  - action: rest_command.mxn10_volume_down
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Cinema"
+          sequence:
+            - repeat:
+                count: 2
+                sequence:
+                  - action: remote.send_command
+                    target:
+                      entity_id: remote.ir_universal_remote_hub
+                    data:
+                      command: "b64:JgCoAAABHo8REhETERMREhETEBQREhE2ERMRExESERISNhE3ETYREhITEBMREhE3ERIRExI1ETcRNhE3EDcQFBE2EDcRExESEQAFhAABHUgSAAvqAAEdSREAC+oAAR1JEQAL6gABHUkQAAvrAAEdSRAAC+sAAR1IEQAL6wABHkgQAAvsAAEcSBEAC+sAAR1JEQAL6gABHUkRAAvqAAEdSREAC+oAAR1JEQANBQ=="
+                  - delay: 0.15
+
+# ── Volume Down (Hold — repeat events) ───────────────────────────────────────
+media_volume_down_hold:
+  alias: "Media Volume Down (Hold)"
+  icon: mdi:volume-minus
+  mode: single
+  description: "Hold volume down — MXN10 -1 step in Audio, 1 IR pulse in Cinema."
+  sequence:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Audio"
+          sequence:
+            - action: rest_command.mxn10_volume_down
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Cinema"
+          sequence:
+            - action: remote.send_command
+              target:
+                entity_id: remote.ir_universal_remote_hub
+              data:
+                command: "b64:JgCoAAABHo8REhETERMREhETEBQREhE2ERMRExESERISNhE3ETYREhITEBMREhE3ERIRExI1ETcRNhE3EDcQFBE2EDcRExESEQAFhAABHUgSAAvqAAEdSREAC+oAAR1JEQAL6gABHUkQAAvrAAEdSRAAC+sAAR1IEQAL6wABHkgQAAvsAAEcSBEAC+sAAR1JEQAL6gABHUkRAAvqAAEdSREAC+oAAR1JEQANBQ=="
+
+# ── Toggle Mode (short-press ON) ─────────────────────────────────────────────
+toggle_media_mode:
+  mode: restart
+  alias: "Toggle Media Mode"
+  icon: mdi:swap-horizontal
+  description: "Cycle through Off → Audio → Cinema → Off."
+  sequence:
+    - choose:
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Off"
+          sequence:
+            - action: script.activate_audio_mode
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Audio"
+          sequence:
+            - action: script.activate_cinema_mode
+        - conditions:
+            - condition: state
+              entity_id: input_select.media_system_mode
+              state: "Cinema"
+          sequence:
+            - action: script.media_system_off
+
+# ── TV wake helper (WoL → wait → API On) ─────────────────────────────────────
+# Philips Android TVs drop to deep standby a few seconds after power-off; the
+# API stops responding. A WoL magic packet wakes the network stack
+# (state goes to "StandbyKeep"), then POST powerstate=On turns the panel on.
+tv_wake:
+  mode: restart
+  alias: "TV: Wake + Power On"
+  icon: mdi:television
+  description: "Wake-on-LAN to the TV MAC, brief settle delay, then POST powerstate=On."
+  sequence:
+    - action: wake_on_lan.send_magic_packet
+      data:
+        mac: "<TV_MAC_ADDRESS>"
+        broadcast_address: "<LAN_BROADCAST_ADDRESS>"
+    - delay:
+        milliseconds: 1500
+    - action: shell_command.tv_power_on
+      continue_on_error: true

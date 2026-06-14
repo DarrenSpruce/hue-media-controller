@@ -25,11 +25,23 @@ from requests.auth import HTTPDigestAuth
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-TV_HOST = "192.168.2.34"
-TV_PORT = 1926
-API_VERSION = 6
-BASE_URL = f"https://{TV_HOST}:{TV_PORT}"
 CONFIG_PATH = Path("config.yaml")
+
+# Read TV connection details from config.yaml (falls back to placeholder for
+# first-run pairing — set tv.host before running this script).
+def _load_tv_config():
+    if CONFIG_PATH.exists():
+        cfg = yaml.safe_load(CONFIG_PATH.read_text()) or {}
+        tv = cfg.get("tv", {}) or {}
+        return (
+            tv.get("host", "192.168.1.XXX"),
+            tv.get("port", 1926),
+            tv.get("api_version", 6),
+        )
+    return ("192.168.1.XXX", 1926, 6)
+
+TV_HOST, TV_PORT, API_VERSION = _load_tv_config()
+BASE_URL = f"https://{TV_HOST}:{TV_PORT}"
 
 # Philips digest_auth_pairing shared key (used to generate auth_signature)
 PAIRING_SECRET_B64 = "JCqdN5AcnAHgJYseUn7ER5k3qgtemfUvMRghQpTfTZq7Cvv8EPQPqfz6dDxPQPSu4gKFPWkJGw32zyASgJkHwCjU"

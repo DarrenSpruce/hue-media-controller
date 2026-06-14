@@ -11,6 +11,12 @@ venv/
 # Config with secrets
 config.yaml
 
+# Home Assistant raw extracts (always sanitize before committing)
+homeassistant/*.raw
+homeassistant/configuration.yaml
+homeassistant/secrets.yaml
+homeassistant/*.bak-*
+
 # Logs
 *.log
 

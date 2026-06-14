@@ -1,0 +1,65 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+# ─── Media System State Tracking ─────────────────────────────────────────────
+input_select:
+  media_system_mode:
+    name: Media System Mode
+    icon: mdi:television
+    options:
+      - "Off"
+      - Audio
+      - Cinema
+    initial: "Off"
+
+# TV state is read directly from Cast: media_player.65oled865_12
+# No need for input_boolean tracking!
+
+# ─── Cambridge Audio MXN10 - Direct HTTP API (StreamMagic) ──────────────────
+# The native cambridge_audio / Cast integration drops frequently (see logs).
+# These rest_commands hit the MXN10's HTTP API directly so power/volume always work.
+rest_command:
+  mxn10_power_on:
+    url: "http://<MXN10_IP>/smoip/zone/state?power=true"
+    method: get
+    timeout: 5
+  mxn10_power_off:
+    url: "http://<MXN10_IP>/smoip/zone/state?power=false"
+    method: get
+    timeout: 5
+  mxn10_volume_up:
+    url: "http://<MXN10_IP>/smoip/zone/state?volume_step_change=1"
+    method: get
+    timeout: 5
+  mxn10_volume_down:
+    url: "http://<MXN10_IP>/smoip/zone/state?volume_step_change=-1"
+    method: get
+    timeout: 5
+
+# ─── Philips TV - Direct network power control (JointSpace API v6) ──────────
+# Uses digest auth (rest_command can't do digest, so we shell out to curl).
+# Requires "Network Standby" enabled on the TV for power-ON to work.
+shell_command:
+  tv_power_on: >-
+    curl -sk --digest --max-time 10
+    -u '<TV_USERNAME>:<TV_PASSWORD>'
+    -H 'Content-Type: application/json'
+    -X POST -d '{"powerstate":"On"}'
+    https://<TV_IP>:1926/6/powerstate
+  tv_power_off: >-
+    curl -sk --digest --max-time 10
+    -u '<TV_USERNAME>:<TV_PASSWORD>'
+    -H 'Content-Type: application/json'
+    -X POST -d '{"powerstate":"Standby"}'
+    https://<TV_IP>:1926/6/powerstate
+
+# Wake-on-LAN integration (needed for Philips TV deep-standby wake)
+wake_on_lan:

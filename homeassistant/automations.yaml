@@ -1,0 +1,89 @@
+# ─── Hifi Cinema Dimmer Automations ──────────────────────────────────────────
+# Button 1 (ON):  short_press = cycle mode, long_press = toggle TV
+# Button 2 (Dim Up):    volume up
+# Button 3 (Dim Down):  volume down
+# Button 4 (OFF):       system off
+
+- id: hifi_cinema_on_short
+  alias: "Hifi Cinema - ON Short Press (Cycle Mode)"
+  description: "Short press ON button cycles Off → Audio → Cinema → Off"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_1
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'short_release' }}"
+  actions:
+    - action: script.toggle_media_mode
+
+- id: hifi_cinema_on_long
+  alias: "Hifi Cinema - ON Long Press (Toggle TV)"
+  description: "Long press ON button toggles TV independently"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_1
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'long_release' }}"
+  actions:
+    - action: script.toggle_tv
+
+- id: hifi_cinema_volume_up_tap
+  alias: "Hifi Cinema - Volume Up (Tap)"
+  description: "Short press dim up — moderate volume bump"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_2
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'short_release' }}"
+  actions:
+    - action: script.media_volume_up_tap
+
+- id: hifi_cinema_volume_up_hold
+  alias: "Hifi Cinema - Volume Up (Hold)"
+  description: "Hold dim up — gradual volume increase"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_2
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'repeat' }}"
+  actions:
+    - action: script.media_volume_up_hold
+
+- id: hifi_cinema_volume_down_tap
+  alias: "Hifi Cinema - Volume Down (Tap)"
+  description: "Short press dim down — moderate volume drop"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_3
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'short_release' }}"
+  actions:
+    - action: script.media_volume_down_tap
+
+- id: hifi_cinema_volume_down_hold
+  alias: "Hifi Cinema - Volume Down (Hold)"
+  description: "Hold dim down — gradual volume decrease"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_3
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'repeat' }}"
+  actions:
+    - action: script.media_volume_down_hold
+
+- id: hifi_cinema_off
+  alias: "Hifi Cinema - OFF"
+  description: "OFF button turns everything off (safe to repeat)"
+  triggers:
+    - trigger: state
+      entity_id: event.hifi_cinema_button_4
+  conditions:
+    - condition: template
+      value_template: "{{ trigger.to_state.attributes.event_type == 'initial_press' }}"
+  actions:
+    - action: script.media_system_off
