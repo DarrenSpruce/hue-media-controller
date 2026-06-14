@@ -173,6 +173,79 @@ class HueBridge:
             "button_ids": button_ids,
         }
 
+    def find_light_by_name(self, light_name: str) -> Optional[dict]:
+        """
+        Find a light by name (exact or partial match).
+
+        Returns a dict with 'id' and 'name', or None if not found.
+        """
+        lights_resp = self._api_get("/resource/light")
+        lights = lights_resp.get("data", [])
+
+        # Try exact match first
+        for light in lights:
+            metadata = light.get("metadata", {})
+            if metadata.get("name", "").lower() == light_name.lower():
+                logger.info("Found light: '%s' (id: %s)", metadata.get("name"), light["id"])
+                return {"id": light["id"], "name": metadata.get("name")}
+
+        # Fallback to partial match
+        for light in lights:
+            metadata = light.get("metadata", {})
+            if light_name.lower() in metadata.get("name", "").lower():
+                logger.info("Found light: '%s' (id: %s)", metadata.get("name"), light["id"])
+                return {"id": light["id"], "name": metadata.get("name")}
+
+        logger.warning("Light '%s' not found. Available lights:", light_name)
+        for light in lights:
+            meta = light.get("metadata", {})
+            logger.warning("  - %s (%s)", meta.get("name", "unknown"), light.get("id"))
+        return None
+
+    def set_light_state(
+        self,
+        light_id: str,
+        on: bool = True,
+        brightness: int = 254,
+        color_temp: Optional[int] = None,
+        xy: Optional[tuple] = None,
+    ) -> bool:
+        """
+        Set light state (on/off, brightness, color).
+
+        Args:
+            light_id: ID of the light (from find_light_by_name)
+            on: Turn on (True) or off (False)
+            brightness: 0-254 (only if on=True)
+            color_temp: Mirek color temperature (optional, e.g. 153 for warm, 500 for cool)
+            xy: CIE color coordinates (optional, tuple of two floats 0-1)
+
+        Returns True if successful.
+        """
+        payload = {"on": {"on": on}}
+
+        if on:
+            # Hue v2 uses brightness in percent (0-100) under dimming
+            percent = max(0, min(100, int((max(0, min(254, brightness)) / 254) * 100)))
+            payload["dimming"] = {"brightness": percent}
+
+            if color_temp is not None:
+                payload["color_temperature"] = {"mirek": color_temp}
+
+            if xy is not None:
+                payload["color"] = {"xy": {"x": xy[0], "y": xy[1]}}
+
+        try:
+            url = f"{self.base_url}/clip/v2/resource/light/{light_id}"
+            headers = {"hue-application-key": self.api_key}
+            resp = self._session.put(url, headers=headers, json=payload, timeout=5)
+            resp.raise_for_status()
+            logger.debug("Set light %s: on=%s bri=%s", light_id, on, brightness)
+            return True
+        except requests.RequestException as e:
+            logger.error("Failed to set light state: %s", e)
+            return False
+
     # -----------------------------------------------------------------
     # Event Stream (SSE)
     # -----------------------------------------------------------------

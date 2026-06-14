@@ -17,12 +17,14 @@ import logging.handlers
 import sys
 import time
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
 from broadlink_ir import BroadlinkIR
 from hue_bridge import HueBridge
 from streammagic import StreamMagic
+from tv_control import PhilipsAndroidTV
 
 logger = logging.getLogger("hue_media_controller")
 
@@ -66,11 +68,33 @@ class MediaController:
             max_volume=self.config["streamer"].get("max_volume", 80),
         )
 
+        # TV control (Philips Android)
+        tv_config = self.config.get("tv", {})
+        self.tv: Optional[PhilipsAndroidTV] = None
+        if tv_config.get("host"):
+            self.tv = PhilipsAndroidTV(
+                host=tv_config["host"],
+                port=tv_config.get("port", 1926),
+                api_version=tv_config.get("api_version", 6),
+                username=tv_config.get("username", ""),
+                password=tv_config.get("password", ""),
+            )
+
+        # Indicator light for mode status
+        self.indicator_light: Optional[dict] = None
+        indicator_config = self.config.get("indicator_light", {})
+        if indicator_config.get("name"):
+            # Will be populated during initialise()
+            self._indicator_light_name = indicator_config.get("name")
+            self._indicator_light_colors = indicator_config.get("colors", {})
+        else:
+            self._indicator_light_name = None
+            self._indicator_light_colors = {}
+
         # IR code shortcuts
         self.ir = self.config.get("ir_codes", {})
         self.timing = self.config.get("timing", {})
         self.dimmer = None
-        self._tv_on = False  # Track TV power state (toggle remote)
         self._on_button_handled = False  # Track if ON press already handled by short press
 
     # -----------------------------------------------------------------
@@ -186,6 +210,36 @@ class MediaController:
         # Check IR codes
         self._check_ir_codes()
 
+        # --- TV (Philips Android) ---
+        if self.tv:
+            info = self.tv.get_device_info()
+            if info:
+                logger.info(
+                    "TV ready: %s (software: %s)",
+                    info.get("name", "unknown"),
+                    info.get("softwareversion", "unknown"),
+                )
+            else:
+                logger.warning(
+                    "Could not reach Philips TV at %s",
+                    self.config.get("tv", {}).get("host", "unknown"),
+                )
+        else:
+            logger.info("TV control not configured")
+
+        # --- Indicator Light ---
+        if self._indicator_light_name:
+            self.indicator_light = self.hue.find_light_by_name(self._indicator_light_name)
+            if self.indicator_light:
+                logger.info("Indicator light ready: %s", self.indicator_light["name"])
+            else:
+                logger.warning("Could not find indicator light '%s'", self._indicator_light_name)
+        else:
+            logger.info("Indicator light not configured")
+
+        # Check IR codes
+        self._check_ir_codes()
+
         logger.info("=" * 60)
         logger.info("  ✅ All devices initialised - ready!")
         logger.info("  Current mode: %s", self.mode.value.upper())
@@ -196,9 +250,10 @@ class MediaController:
         """Save the API key back to the config file."""
         try:
             config_path = Path("config.yaml")
-            content = config_path.read_text()
-            content = content.replace('api_key: ""', f'api_key: "{api_key}"')
-            config_path.write_text(content)
+            config = yaml.safe_load(config_path.read_text()) or {}
+            config.setdefault("hue", {})
+            config["hue"]["api_key"] = api_key
+            config_path.write_text(yaml.safe_dump(config, sort_keys=False))
             logger.info("API key saved to config.yaml")
         except Exception as e:
             logger.warning("Could not save API key to config: %s", e)
@@ -208,6 +263,8 @@ class MediaController:
         """Warn about any missing IR codes."""
         missing = []
         for device_name, codes in self.ir.items():
+            if self.tv and device_name == "tv":
+                continue
             if isinstance(codes, dict):
                 for code_name, code_value in codes.items():
                     if not code_value:
@@ -238,25 +295,27 @@ class MediaController:
             button_name: "on", "dim_up", "dim_down", "off"
             event_type: "initial_press", "short_release", "long_release", "repeat"
         """
-        # ON button: short press = mode toggle, long press = TV toggle override
+        # ON button: handle on press reliably across bridges/firmware.
+        # Some report only initial_press, others report short_release.
         if button_name == "on":
             if event_type == "initial_press":
-                self._on_button_handled = False  # Reset; wait for release type
+                if self._debounce():
+                    return
+                self._on_button_handled = False
+                tv_state = "on" if (self.tv and self.tv.is_on()) else "off" if self.tv else "no-tv"
+                logger.info("🔘 Button: on (initial_press) | Mode: %s | TV: %s",
+                            self.mode.value, tv_state)
+                self._handle_on()
+                self._on_button_handled = True
                 return
             elif event_type == "short_release":
                 if self._on_button_handled:
                     return
-                self._on_button_handled = True
-                logger.info("🔘 Button: on (short press) | Mode: %s | TV: %s",
-                            self.mode.value, "on" if self._tv_on else "off")
+                tv_state = "on" if (self.tv and self.tv.is_on()) else "off" if self.tv else "no-tv"
+                logger.info("🔘 Button: on (short_release) | Mode: %s | TV: %s",
+                            self.mode.value, tv_state)
                 self._handle_on()
-                return
-            elif event_type == "long_release":
-                if self._on_button_handled:
-                    return
                 self._on_button_handled = True
-                logger.info("🔘 Button: on (LONG press) | Toggling TV override")
-                self._handle_tv_toggle()
                 return
             else:
                 return
@@ -283,9 +342,9 @@ class MediaController:
         if event_type != "initial_press":
             return
 
+        tv_state = "on" if (self.tv and self.tv.is_on()) else "off" if self.tv else "no-tv"
         logger.info("🔘 Button: %s (%s) | Mode: %s | TV: %s",
-                    button_name, event_type, self.mode.value,
-                    "on" if self._tv_on else "off")
+                    button_name, event_type, self.mode.value, tv_state)
 
         if button_name == "off":
             self._handle_off()
@@ -310,16 +369,31 @@ class MediaController:
     def _handle_tv_toggle(self):
         """
         Handle long press of the ON button — toggle TV on/off
-        without changing the sound mode. Useful to re-sync if
-        the TV state got out of step with our tracking.
+        without changing the sound mode.
+
+        If network TV control is available, query real state and toggle.
+        Otherwise, fall back to IR (toggle code).
         """
-        tv_code = self.ir.get("tv", {}).get("power_on", "") or self.ir.get("tv", {}).get("power_off", "")
-        if tv_code:
-            self.broadlink.send_ir(tv_code)
-            self._tv_on = not self._tv_on
-            logger.info("📺 TV toggled → %s", "ON" if self._tv_on else "OFF")
+        if self.tv:
+            # Use network control with real state
+            try:
+                is_on = self.tv.is_on()
+                if is_on:
+                    self.tv.power_off()
+                    logger.info("📺 TV powered off (network)")
+                else:
+                    self.tv.power_on()
+                    logger.info("📺 TV powered on (network)")
+            except Exception as e:
+                logger.error("TV toggle failed: %s", e)
         else:
-            logger.warning("No TV power IR code configured")
+            # Fall back to IR toggle
+            tv_code = self.ir.get("tv", {}).get("power_on", "") or self.ir.get("tv", {}).get("power_off", "")
+            if tv_code:
+                self.broadlink.send_ir(tv_code)
+                logger.info("📺 TV toggled via IR (toggle code)")
+            else:
+                logger.warning("No TV control available (no network or IR code configured)")
 
     def _handle_volume_up(self, held: bool = False):
         """
@@ -373,8 +447,16 @@ class MediaController:
         # Turn off MXN10 (discrete off - safe to repeat)
         self.streamer.power_off()
 
-        # Toggle TV off only if we think it's on
-        if self._tv_on:
+        # Turn off TV if using network control, or via IR if only IR available
+        if self.tv:
+            try:
+                if self.tv.is_on():
+                    self.tv.power_off()
+                    logger.info("TV powered off (network)")
+            except Exception as e:
+                logger.warning("Could not power off TV via network: %s", e)
+        else:
+            # Fall back to IR
             tv_code = self.ir.get("tv", {}).get("power_off", "") or self.ir.get("tv", {}).get("power_on", "")
             if tv_code:
                 self.broadlink.send_ir(tv_code)
@@ -385,14 +467,23 @@ class MediaController:
         if cinema_off:
             self.broadlink.send_ir(cinema_off)
 
-        # Always reset state cleanly
-        self._tv_on = False
+        # Update indicator light and reset state
+        self._set_indicator_light_for_mode(SystemMode.OFF)
         self.mode = SystemMode.OFF
         logger.info("✅ System is now OFF")
 
     # -----------------------------------------------------------------
     # Mode Activation
     # -----------------------------------------------------------------
+    def _power_cycle_streamer_for_amp_wake(self, settle_delay: float = 3.0):
+        """Power-cycle MXN10 to wake an external amp that may have auto-slept."""
+        if self.streamer.is_powered_on():
+            logger.info("Power-cycling MXN10 to wake amp...")
+            self.streamer.power_off()
+            time.sleep(2)
+        self.streamer.power_on()
+        time.sleep(settle_delay)
+
     def _activate_audio_mode(self):
         """
         Activate AUDIO mode.
@@ -406,12 +497,19 @@ class MediaController:
 
         # If coming from CINEMA, shut down cinema-specific gear
         if self.mode == SystemMode.CINEMA:
-            # Toggle TV off if it's on
-            if self._tv_on:
+            # Turn off TV (query real state if available)
+            if self.tv:
+                try:
+                    if self.tv.is_on():
+                        self.tv.power_off()
+                        time.sleep(ir_delay)
+                except Exception as e:
+                    logger.warning("Could not query/power off TV: %s", e)
+            else:
+                # Fall back to IR
                 tv_code = self.ir.get("tv", {}).get("power_off", "") or self.ir.get("tv", {}).get("power_on", "")
                 if tv_code:
                     self.broadlink.send_ir(tv_code)
-                    self._tv_on = False
                     time.sleep(ir_delay)
 
             # Turn off home cinema
@@ -420,17 +518,27 @@ class MediaController:
                 self.broadlink.send_ir(cinema_off)
                 time.sleep(ir_delay)
 
-        # Power on MXN10
-        if not self.streamer.is_powered_on():
-            self.streamer.power_on()
-            time.sleep(self.config["streamer"].get("power_on_delay", power_settle))
+            # Always power-cycle when switching CINEMA -> AUDIO
+            self._power_cycle_streamer_for_amp_wake(
+                self.config["streamer"].get("power_on_delay", power_settle)
+            )
+
+        # OFF -> AUDIO: also power-cycle to wake external amp reliably
+        if self.mode == SystemMode.OFF:
+            self._power_cycle_streamer_for_amp_wake(
+                self.config["streamer"].get("power_on_delay", power_settle)
+            )
 
         # Switch audio/TV switch to streamer input
         switch_code = self.ir.get("audio_switch", {}).get("input_streamer", "")
         if switch_code:
             self.broadlink.send_ir(switch_code)
+        else:
+            logger.warning("Missing IR code: audio_switch.input_streamer")
 
+        # Update indicator light and mode
         self.mode = SystemMode.AUDIO
+        self._set_indicator_light_for_mode(SystemMode.AUDIO)
         logger.info("✅ AUDIO mode active (MXN10 → speakers)")
 
     def _activate_cinema_mode(self):
@@ -445,20 +553,22 @@ class MediaController:
         ir_delay = self.timing.get("ir_command_delay", 0.5)
         power_settle = self.timing.get("power_on_settle", 3)
 
-        # Power-cycle the MXN10 to wake the amp (it sleeps after inactivity)
-        if self.streamer.is_powered_on():
-            logger.info("Power-cycling MXN10 to wake amp...")
-            self.streamer.power_off()
-            time.sleep(2)
-        self.streamer.power_on()
-        time.sleep(power_settle)
+        # Always power-cycle when switching AUDIO -> CINEMA
+        self._power_cycle_streamer_for_amp_wake(power_settle)
 
-        # Turn on TV (only if not already on)
-        if not self._tv_on:
+        # Turn on TV (query real state if network available)
+        if self.tv:
+            try:
+                if not self.tv.is_on():
+                    self.tv.power_on()
+                    time.sleep(ir_delay)
+            except Exception as e:
+                logger.warning("Could not query/power on TV via network: %s", e)
+        else:
+            # Fall back to IR
             tv_code = self.ir.get("tv", {}).get("power_on", "") or self.ir.get("tv", {}).get("power_off", "")
             if tv_code:
                 self.broadlink.send_ir(tv_code)
-                self._tv_on = True
                 time.sleep(ir_delay)
 
         # Turn on home cinema
@@ -466,17 +576,58 @@ class MediaController:
         if cinema_on:
             self.broadlink.send_ir(cinema_on)
             time.sleep(ir_delay)
+        else:
+            logger.warning("Missing IR code: home_cinema.power_on")
 
         # Switch audio/TV switch to TV/cinema path
         switch_code = self.ir.get("audio_switch", {}).get("input_tv", "")
         if switch_code:
             self.broadlink.send_ir(switch_code)
+        else:
+            logger.warning("Missing IR code: audio_switch.input_tv")
 
         # Wait for devices to settle
         time.sleep(power_settle)
 
+        # Update indicator light and mode
         self.mode = SystemMode.CINEMA
+        self._set_indicator_light_for_mode(SystemMode.CINEMA)
         logger.info("✅ CINEMA mode active (TV + Home Cinema → speakers, MXN10 keeping amp awake)")
+
+    # -----------------------------------------------------------------
+    # Indicator Light
+    # -----------------------------------------------------------------
+    def _set_indicator_light_for_mode(self, mode: SystemMode):
+        """
+        Update indicator light to reflect the current mode.
+        
+        Light is controlled via Hue bridge with mode-specific colors.
+        OFF = off, AUDIO = blue dim, CINEMA = warm dim.
+        """
+        if not self.indicator_light or not self._indicator_light_colors:
+            return
+
+        light_id = self.indicator_light["id"]
+        mode_config = self._indicator_light_colors.get(mode.value, {})
+
+        if mode == SystemMode.OFF:
+            # Turn off the light
+            self.hue.set_light_state(light_id, on=False)
+            logger.debug("Indicator light: OFF")
+        else:
+            # Turn on with configured color
+            brightness = mode_config.get("brightness", 100)
+            color_temp = mode_config.get("color_temp")
+            xy = mode_config.get("xy")
+
+            self.hue.set_light_state(
+                light_id,
+                on=True,
+                brightness=brightness,
+                color_temp=color_temp,
+                xy=xy,
+            )
+            logger.debug("Indicator light: %s (bri=%d)", mode.value.upper(), brightness)
 
     # -----------------------------------------------------------------
     # Main Loop

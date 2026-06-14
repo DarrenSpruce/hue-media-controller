@@ -27,6 +27,15 @@ streamer:
   max_volume: 80                     # Safety limit for max volume percentage
   power_on_delay: 3                  # Seconds to wait after powering on
 
+# --- Philips Android Smart TV (JointSpace API v6) ---
+# Run `python pair_tv.py` once to pair — a PIN will appear on the TV screen.
+tv:
+  host: "192.168.1.XXX"              # IP address of your Philips Android TV
+  port: 1926                         # HTTPS port for API v6 (2019+ models)
+  api_version: 6                     # API version
+  username: ""                       # Set automatically by pair_tv.py
+  password: ""                       # Set automatically by pair_tv.py
+
 # --- IR Codes ---
 # These are Base64-encoded IR packets captured from your remotes.
 # Run `python learn_ir.py` to capture them.
@@ -43,6 +52,21 @@ ir_codes:
     # Input switching commands for your audio/TV switch
     input_tv: ""                     # Switch to TV/cinema audio path
     input_streamer: ""               # Switch to MXN10E/music audio path
+
+# --- Hue Indicator Light (Status Display) ---
+# Shows the current system mode via color:
+# - OFF: light is off
+# - AUDIO: dim blue (listening mode)
+# - CINEMA: dim warm white (watching mode)
+indicator_light:
+  name: "Hue color lamp 2"           # Name of your indicator light in the Hue app
+  colors:
+    audio:
+      brightness: 60                 # 0-254, lower is dimmer
+      xy: [0.13, 0.13]              # Blue color (x,y CIE coordinates)
+    cinema:
+      brightness: 60
+      color_temp: 400                # Warm white (mirek, lower = warmer)
 
 # --- Timing ---
 timing:
