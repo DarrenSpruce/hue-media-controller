@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lounge">
+<meta name="theme-color" content="#0d0f13">
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%230d0f13'/%3E%3Crect x='38' y='52' width='104' height='68' rx='8' fill='none' stroke='%235b9cff' stroke-width='9'/%3E%3Cpath d='M70 138h40' stroke='%235b9cff' stroke-width='9' stroke-linecap='round'/%3E%3C/svg%3E">
+<title>Lounge</title>
+<style>
+  :root {
+    --bg: #0d0f13;
+    --panel: #171a21;
+    --panel-hi: #1f2530;
+    --line: #2a313d;
+    --text: #eef1f6;
+    --muted: #8b95a7;
+    --audio: #5b9cff;
+    --cinema: #ffb45b;
+    --off: #6b7686;
+    --danger: #ff6b6b;
+  }
+
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 400 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+    gap: 14px;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  /* ── Status header ─────────────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 2px;
+  }
+
+  #dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--off);
+    flex: none;
+    transition: background .25s, box-shadow .25s;
+  }
+  body[data-mode="Audio"]  #dot { background: var(--audio);  box-shadow: 0 0 14px -1px var(--audio); }
+  body[data-mode="Cinema"] #dot { background: var(--cinema); box-shadow: 0 0 14px -1px var(--cinema); }
+
+  #mode-label {
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+
+  #sub {
+    margin-left: auto;
+    font-size: 13px;
+    color: var(--muted);
+    text-align: right;
+  }
+
+  /* ── Layout ────────────────────────────────────────────────────────────── */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 14px;
+    min-height: 0;
+  }
+
+  .modes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .vol {
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .foot {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* ── Buttons ───────────────────────────────────────────────────────────── */
+  button {
+    appearance: none;
+    font: inherit;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 18px 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: transform .08s ease, background .15s, border-color .15s;
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+
+  button:active { transform: scale(.97); background: var(--panel-hi); }
+
+  button svg { width: 30px; height: 30px; stroke-width: 1.9; }
+
+  .label {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: .01em;
+  }
+
+  /* Active mode gets a coloured ring */
+  body[data-mode="Audio"]  #btn-audio,
+  body[data-mode="Cinema"] #btn-cinema {
+    background: var(--panel-hi);
+  }
+  body[data-mode="Audio"]  #btn-audio  { border-color: var(--audio);  color: var(--audio); }
+  body[data-mode="Cinema"] #btn-cinema { border-color: var(--cinema); color: var(--cinema); }
+
+  /* Volume buttons are the big ones — most-used control */
+  .vol button {
+    font-size: 15px;
+    border-radius: 22px;
+  }
+  .vol button svg { width: 42px; height: 42px; }
+  .vol button.holding { background: var(--panel-hi); border-color: var(--audio); }
+
+  #btn-off { color: var(--muted); }
+  #btn-off:active { color: var(--danger); border-color: var(--danger); }
+
+  button[disabled] { opacity: .35; pointer-events: none; }
+
+  /* ── Toast ─────────────────────────────────────────────────────────────── */
+  #toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(24px + env(safe-area-inset-bottom));
+    transform: translate(-50%, 20px);
+    background: #262c38;
+    border: 1px solid var(--line);
+    color: var(--text);
+    font-size: 14px;
+    padding: 10px 18px;
+    border-radius: 999px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s, transform .2s;
+    max-width: calc(100vw - 32px);
+    text-align: center;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  #toast.err { border-color: var(--danger); color: #ffd4d4; }
+
+  /* ── Setup panel ───────────────────────────────────────────────────────── */
+  #setup {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    padding: max(24px, env(safe-area-inset-top)) 22px 24px;
+    display: none;
+    flex-direction: column;
+    gap: 16px;
+    overflow-y: auto;
+  }
+  #setup.show { display: flex; }
+  #setup h1 { font-size: 20px; margin: 0; }
+  #setup p { color: var(--muted); font-size: 14px; margin: 0; }
+  #setup label { font-size: 13px; color: var(--muted); display: block; margin-bottom: 6px; }
+  #setup input {
+    width: 100%;
+    font: inherit;
+    color: var(--text);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 14px;
+  }
+  #setup button {
+    flex-direction: row;
+    background: var(--audio);
+    color: #08101f;
+    border-color: transparent;
+    font-weight: 600;
+    padding: 15px;
+  }
+  #setup code {
+    color: var(--text);
+    background: var(--panel);
+    padding: 1px 5px;
+    border-radius: 5px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body data-mode="Off">
+
+<header>
+  <div id="dot"></div>
+  <div id="mode-label">—</div>
+  <div id="sub"></div>
+</header>
+
+<main>
+  <div class="modes">
+    <button id="btn-audio">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
+      </svg>
+      <span class="label">Audio</span>
+    </button>
+    <button id="btn-cinema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="4" width="20" height="14" rx="2"/><path d="M8 21h8M12 18v3"/>
+      </svg>
+      <span class="label">Cinema</span>
+    </button>
+  </div>
+
+  <div class="vol">
+    <button id="btn-volup">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>
+      </svg>
+      <span class="label">Volume up</span>
+    </button>
+    <button id="btn-voldown">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M11 5 6 9H2v6h4l5 4z"/><path d="M22 9l-6 6M16 9l6 6"/>
+      </svg>
+      <span class="label">Volume down</span>
+    </button>
+  </div>
+
+  <div class="foot">
+    <button id="btn-tv">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="7" width="20" height="13" rx="2"/><path d="m7 3 5 4 5-4"/>
+      </svg>
+      <span class="label">TV</span>
+    </button>
+    <button id="btn-off">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 3v9"/><path d="M18.4 6.6a9 9 0 1 1-12.8 0"/>
+      </svg>
+      <span class="label">All off</span>
+    </button>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<div id="setup">
+  <h1>Connect to Home Assistant</h1>
+  <p>Create a long-lived access token in HA: click your user avatar (bottom left)
+     → <code>Security</code> → <code>Create token</code>. It is stored only in this
+     browser, never in the page itself.</p>
+  <div>
+    <label for="in-url">Home Assistant URL</label>
+    <input id="in-url" type="url" inputmode="url" autocapitalize="off" autocorrect="off"
+           spellcheck="false" placeholder="http://homeassistant.local:8123">
+  </div>
+  <div>
+    <label for="in-token">Long-lived access token</label>
+    <input id="in-token" type="password" autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="eyJhbGciOi…">
+  </div>
+  <button id="btn-save">Save &amp; connect</button>
+  <p id="setup-err" style="color:var(--danger)"></p>
+</div>
+
+<script>
+"use strict";
+
+/* ── Entity / script names — match homeassistant/scripts.yaml ─────────────── */
+const MODE_ENTITY = "input_select.media_system_mode";
+const TV_ENTITY   = "media_player.65oled865_12";
+
+const SCRIPTS = {
+  audio:    "activate_audio_mode",
+  cinema:   "activate_cinema_mode",
+  off:      "media_system_off",
+  tv:       "toggle_tv",
+  volUpTap:   "media_volume_up_tap",
+  volUpHold:  "media_volume_up_hold",
+  volDnTap:   "media_volume_down_tap",
+  volDnHold:  "media_volume_down_hold",
+};
+
+/* Hold behaviour mirrors the dimmer: tap = coarse step, hold = repeated fine steps */
+const HOLD_DELAY  = 400;   // ms before a press counts as a hold
+const HOLD_REPEAT = 450;   // ms between fine steps while held
+const POLL_MS     = 3000;
+
+/* ── Connection settings ──────────────────────────────────────────────────── */
+const store = {
+  get url()   { return localStorage.getItem("ha_url") || ""; },
+  get token() { return localStorage.getItem("ha_token") || ""; },
+  save(url, token) {
+    localStorage.setItem("ha_url", url.replace(/\/+$/, ""));
+    localStorage.setItem("ha_token", token);
+  },
+  clear() { localStorage.removeItem("ha_token"); },
+};
+
+/* Served from HA's own /local/ folder? Then the API is same-origin and no URL is needed. */
+const sameOrigin = location.protocol.startsWith("http") && location.pathname.startsWith("/local/");
+const baseUrl = () => (sameOrigin ? "" : store.url);
+
+async function api(path, options = {}) {
+  const res = await fetch(baseUrl() + path, {
+    ...options,
+    headers: {
+      Authorization: "Bearer " + store.token,
+      "Content-Type": "application/json",
+      ...options.headers,
+    },
+  });
+  if (res.status === 401 || res.status === 403) {
+    store.clear();
+    showSetup("That token was rejected. Please create a new one.");
+    throw new Error("unauthorized");
+  }
+  if (!res.ok) throw new Error("HA returned " + res.status);
+  return res.json();
+}
+
+const callScript = (name) =>
+  api("/api/services/script/" + name, { method: "POST", body: "{}" });
+
+const getState = (entity) => api("/api/states/" + entity);
+
+/* ── UI helpers ───────────────────────────────────────────────────────────── */
+const $ = (id) => document.getElementById(id);
+let toastTimer;
+
+function toast(msg, isError = false) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.classList.toggle("err", isError);
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), isError ? 4000 : 1600);
+}
+
+function setMode(mode) {
+  document.body.dataset.mode = mode;
+  $("mode-label").textContent = mode === "Off" ? "Everything off" : mode + " mode";
+}
+
+/* ── State polling ────────────────────────────────────────────────────────── */
+let pollTimer;
+
+async function refresh() {
+  try {
+    const mode = await getState(MODE_ENTITY);
+    setMode(mode.state);
+  } catch (err) {
+    if (err.message !== "unauthorized") {
+      $("mode-label").textContent = "Not connected";
+      $("sub").textContent = "";
+    }
+    return;
+  }
+  // TV state is a nice-to-have: never let it break the main readout.
+  try {
+    const tv = await getState(TV_ENTITY);
+    const on = !["off", "unavailable", "unknown", "standby"].includes(tv.state);
+    $("sub").textContent = on ? "TV on" : "TV off";
+  } catch {
+    $("sub").textContent = "";
+  }
+}
+
+function startPolling() {
+  clearInterval(pollTimer);
+  refresh();
+  pollTimer = setInterval(refresh, POLL_MS);
+}
+
+/* ── Actions ──────────────────────────────────────────────────────────────── */
+async function run(script, label) {
+  try {
+    await callScript(script);
+    if (label) toast(label);
+    // Scripts take a few seconds (delays, IR, WoL) before the mode settles.
+    setTimeout(refresh, 500);
+    setTimeout(refresh, 4000);
+  } catch (err) {
+    if (err.message !== "unauthorized") toast(err.message, true);
+  }
+}
+
+function onTap(id, script, label) {
+  $(id).addEventListener("click", () => run(script, label));
+}
+
+/* Press-and-hold: a quick tap fires the coarse script, holding repeats the fine one. */
+function bindVolume(id, tapScript, holdScript) {
+  const btn = $(id);
+  let holdStart, repeatTimer, didHold;
+
+  const begin = (ev) => {
+    ev.preventDefault();
+    didHold = false;
+    holdStart = setTimeout(() => {
+      didHold = true;
+      btn.classList.add("holding");
+      run(holdScript);
+      repeatTimer = setInterval(() => run(holdScript), HOLD_REPEAT);
+    }, HOLD_DELAY);
+  };
+
+  const end = () => {
+    clearTimeout(holdStart);
+    clearInterval(repeatTimer);
+    btn.classList.remove("holding");
+    if (!didHold) run(tapScript);
+    didHold = false;
+  };
+
+  btn.addEventListener("pointerdown", begin);
+  btn.addEventListener("pointerup", end);
+  btn.addEventListener("pointercancel", () => {
+    clearTimeout(holdStart);
+    clearInterval(repeatTimer);
+    btn.classList.remove("holding");
+    didHold = false;
+  });
+  // Stop iOS from treating a long press as a text selection / callout.
+  btn.addEventListener("contextmenu", (ev) => ev.preventDefault());
+}
+
+onTap("btn-audio",  SCRIPTS.audio,  "Audio mode");
+onTap("btn-cinema", SCRIPTS.cinema, "Cinema mode");
+onTap("btn-tv",     SCRIPTS.tv,     "TV toggled");
+onTap("btn-off",    SCRIPTS.off,    "Shutting down");
+bindVolume("btn-volup",   SCRIPTS.volUpTap, SCRIPTS.volUpHold);
+bindVolume("btn-voldown", SCRIPTS.volDnTap, SCRIPTS.volDnHold);
+
+/* ── Setup flow ───────────────────────────────────────────────────────────── */
+function showSetup(message) {
+  clearInterval(pollTimer);
+  $("setup-err").textContent = message || "";
+  $("in-url").value = store.url || (sameOrigin ? location.origin : "");
+  $("setup").classList.add("show");
+  // Same-origin means the URL is implied — don't ask for it.
+  $("in-url").parentElement.style.display = sameOrigin ? "none" : "";
+}
+
+$("btn-save").addEventListener("click", async () => {
+  const url = $("in-url").value.trim();
+  const token = $("in-token").value.trim();
+  if (!token) { $("setup-err").textContent = "A token is required."; return; }
+  if (!sameOrigin && !url) { $("setup-err").textContent = "A Home Assistant URL is required."; return; }
+
+  store.save(url, token);
+  try {
+    await getState(MODE_ENTITY);
+  } catch (err) {
+    if (err.message !== "unauthorized") $("setup-err").textContent = "Could not reach Home Assistant: " + err.message;
+    return;
+  }
+  $("setup").classList.remove("show");
+  $("in-token").value = "";
+  startPolling();
+});
+
+if (!store.token) showSetup();
+else startPolling();
+
+// Coming back from the lock screen should show current state immediately.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && store.token) startPolling();
+});
+</script>
+</body>
+</html>

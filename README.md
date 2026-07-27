@@ -6,6 +6,9 @@ Control your home cinema and hi-fi system using a Philips Hue Dimmer Switch.
 > Assistant setup in [`homeassistant/`](homeassistant/README.md). The Python
 > `controller.py` here is the original standalone implementation and remains a
 > working alternative.
+>
+> **Phone app & voice:** [`webapp/`](webapp/README.md) — a one-file home-screen
+> remote and Siri Shortcuts, both driving the same HA scripts as the dimmer.
 
 ## How It Works
 
