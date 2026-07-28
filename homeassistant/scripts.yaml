@@ -148,7 +148,7 @@ toggle_tv:
 media_volume_up_tap:
   alias: "Media Volume Up (Tap)"
   icon: mdi:volume-plus
-  description: "Short press volume up — MXN10 +3 steps in Audio, 2 IR pulses in Cinema."
+  description: "Short press volume up — MXN10 +3 steps in Audio, 1 IR pulse in Cinema."
   sequence:
     - choose:
         - conditions:
@@ -165,15 +165,11 @@ media_volume_up_tap:
               entity_id: input_select.media_system_mode
               state: "Cinema"
           sequence:
-            - repeat:
-                count: 2
-                sequence:
-                  - action: remote.send_command
-                    target:
-                      entity_id: remote.ir_universal_remote_hub
-                    data:
-                      command: "b64:JgCIAAABHZAQExESERMRExESERMQFBE2ERMREhETERIRNxE3ETYQExI2EDcRNhEUEBMREhE3ETYRExESERMRNxA2ETcRExAUEQAFgwABHkcSAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREADQU="
-                  - delay: 0.15
+            - action: remote.send_command
+              target:
+                entity_id: remote.ir_universal_remote_hub
+              data:
+                command: "b64:JgCIAAABHZAQExESERMRExESERMQFBE2ERMREhETERIRNxE3ETYQExI2EDcRNhEUEBMREhE3ETYRExESERMRNxA2ETcRExAUEQAFgwABHkcSAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREAC+wAAR1IEQAL7QABHEkRAAvsAAEcSREADQU="
 
 # ── Volume Up (Hold — repeat events) ─────────────────────────────────────────
 media_volume_up_hold:
@@ -204,7 +200,7 @@ media_volume_up_hold:
 media_volume_down_tap:
   alias: "Media Volume Down (Tap)"
   icon: mdi:volume-minus
-  description: "Short press volume down — MXN10 -3 steps in Audio, 2 IR pulses in Cinema."
+  description: "Short press volume down — MXN10 -3 steps in Audio, 1 IR pulse in Cinema."
   sequence:
     - choose:
         - conditions:
@@ -221,15 +217,11 @@ media_volume_down_tap:
               entity_id: input_select.media_system_mode
               state: "Cinema"
           sequence:
-            - repeat:
-                count: 2
-                sequence:
-                  - action: remote.send_command
-                    target:
-                      entity_id: remote.ir_universal_remote_hub
-                    data:
-                      command: "b64:JgCoAAABHo8REhETERMREhETEBQREhE2ERMRExESERISNhE3ETYREhITEBMREhE3ERIRExI1ETcRNhE3EDcQFBE2EDcRExESEQAFhAABHUgSAAvqAAEdSREAC+oAAR1JEQAL6gABHUkQAAvrAAEdSRAAC+sAAR1IEQAL6wABHkgQAAvsAAEcSBEAC+sAAR1JEQAL6gABHUkRAAvqAAEdSREAC+oAAR1JEQANBQ=="
-                  - delay: 0.15
+            - action: remote.send_command
+              target:
+                entity_id: remote.ir_universal_remote_hub
+              data:
+                command: "b64:JgCoAAABHo8REhETERMREhETEBQREhE2ERMRExESERISNhE3ETYREhITEBMREhE3ERIRExI1ETcRNhE3EDcQFBE2EDcRExESEQAFhAABHUgSAAvqAAEdSREAC+oAAR1JEQAL6gABHUkQAAvrAAEdSRAAC+sAAR1IEQAL6wABHkgQAAvsAAEcSBEAC+sAAR1JEQAL6gABHUkRAAvqAAEdSREAC+oAAR1JEQANBQ=="
 
 # ── Volume Down (Hold — repeat events) ───────────────────────────────────────
 media_volume_down_hold:
