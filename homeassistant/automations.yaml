@@ -1,8 +1,8 @@
 # ─── Hifi Cinema Dimmer Automations ──────────────────────────────────────────
-# Button 1 (ON):  short_press = cycle mode, long_press = toggle TV
+# Button 1 (ON):  short_press = cycle mode (Off → Audio → Cinema → resume → Audio), long_press = toggle TV
 # Button 2 (Dim Up):    volume up
 # Button 3 (Dim Down):  volume down
-# Button 4 (OFF):       system off
+# Button 4 (OFF):       press twice within 3s to confirm system off
 
 - id: hifi_cinema_on_short
   alias: "Hifi Cinema - ON Short Press (Cycle Mode)"
@@ -77,8 +77,8 @@
     - action: script.media_volume_down_hold
 
 - id: hifi_cinema_off
-  alias: "Hifi Cinema - OFF"
-  description: "OFF button turns everything off (safe to repeat)"
+  alias: "Hifi Cinema - OFF (double-press to confirm)"
+  description: "First press arms a 3s confirm window and blinks the lamp to acknowledge it. A second press within that window shuts everything down — media_system_off snapshots the lamp's ambient look, shows an instant off-ack, and restores the ambient look after 10s if still Off. A stray single press just lets the arm-blink fade and does nothing else."
   triggers:
     - trigger: state
       entity_id: event.hifi_cinema_button_4
@@ -86,4 +86,25 @@
     - condition: template
       value_template: "{{ trigger.to_state.attributes.event_type == 'initial_press' }}"
   actions:
-    - action: script.media_system_off
+    - if:
+        - condition: state
+          entity_id: timer.off_confirm
+          state: "active"
+      then:
+        - action: timer.cancel
+          target:
+            entity_id: timer.off_confirm
+        - action: script.media_system_off
+      else:
+        - action: timer.start
+          target:
+            entity_id: timer.off_confirm
+        # Phase 1 ack: a single blink says "armed" without changing the
+        # lamp's actual state — Hue's flash effect reverts on its own, so a
+        # stray single press leaves the lamp exactly as it was.
+        - action: light.turn_on
+          target:
+            entity_id: light.hue_color_lamp_2
+          data:
+            flash: short
+          continue_on_error: true

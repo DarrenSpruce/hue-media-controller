@@ -11,6 +11,7 @@
 # Home cinema off:   discrete OFF
 # Cinema volume up:  volume +
 # Cinema volume down: volume -
+# Cinema display dim: front-panel brightness (cycles full → dim → off)
 # Audio switch → TV:       switch to TV/cinema input
 # Audio switch → streamer: switch to MXN10/music input
 
@@ -27,7 +28,9 @@ activate_audio_mode:
           entity_id: input_select.media_system_mode
           state: "Cinema"
       then:
-        # Turn off TV via discrete IR off
+        # Snapshot what's on screen, then turn off TV via discrete IR off
+        - action: shell_command.tv_save_activity
+          continue_on_error: true
         - action: shell_command.tv_power_off
           continue_on_error: true
         - delay: 0.5
@@ -53,12 +56,33 @@ activate_audio_mode:
         entity_id: input_select.media_system_mode
         option: Audio
 
+    # Blue = "Audio mode" indicator — but only for 10s. Snapshot whatever
+    # ambient look the lamp already had (including off) so we can put it
+    # back instead of permanently overriding it.
+    - action: scene.create
+      data:
+        scene_id: audio_mode_lamp_restore
+        snapshot_entities:
+          - light.hue_color_lamp_2
     - action: light.turn_on
       target:
         entity_id: light.hue_color_lamp_2
       data:
         brightness_pct: 25
         xy_color: [0.13, 0.13]
+    - delay:
+        seconds: 10
+    # Only restore if we're still in Audio mode — if the mode changed in the
+    # meantime, that mode's own lamp state (or a later restore) already owns
+    # the lamp, and this would clobber it.
+    - if:
+        - condition: state
+          entity_id: input_select.media_system_mode
+          state: "Audio"
+      then:
+        - action: scene.turn_on
+          target:
+            entity_id: scene.audio_mode_lamp_restore
 # ── Activate Cinema Mode ─────────────────────────────────────────────────────
 activate_cinema_mode:
   mode: restart
@@ -66,6 +90,21 @@ activate_cinema_mode:
   icon: mdi:filmstrip
   description: "Power-cycle MXN10 to wake home cinema amp, turn on TV via IR, switch audio to TV input."
   sequence:
+    # Mode + lamp first: instant ack, and the next ON press (resume) must
+    # already see Cinema even while the ~15s startup below is still running.
+    - service: input_select.select_option
+      data:
+        entity_id: input_select.media_system_mode
+        option: Cinema
+    - action: input_boolean.turn_off
+      target:
+        entity_id: input_boolean.cinema_resume_used
+    - action: light.turn_on
+      target:
+        entity_id: light.hue_color_lamp_2
+      data:
+        brightness_pct: 25
+        color_temp_kelvin: 2500
     # Power-cycle MXN10 (off then on) to wake the amp via trigger
     - action: rest_command.mxn10_power_off
     - delay: 2
@@ -87,18 +126,34 @@ activate_cinema_mode:
         entity_id: remote.ir_universal_remote_hub
       data:
         command: "b64:JgBIAAABHo8SEhISEhISERMSEhIREhI3ETYTNRI2EjYRNxI2EjYREhMSEjUSExE2EjYSEhISEhISNRMSEjUSExISETYTNRI2EgANBQ=="
-    # Update state
-    - service: input_select.select_option
-      data:
-        entity_id: input_select.media_system_mode
-        option: Cinema
+    - delay: 1
+    # Black out the amp's front panel — default look for Cinema viewing
+    - action: script.cinema_display_dim
+      continue_on_error: true
+    # Last, so its polling doesn't hold up the amp/switch IR steps above
+    - action: shell_command.tv_clear_nag
+      continue_on_error: true
+# ── Cinema: Dim Amp Display ──────────────────────────────────────────────────
+# The Harman's front-panel brightness cycles full → dim → off on each press of
+# the remote's dim button, so two presses land on "off" (black). That's the
+# default viewing state for Cinema mode. Safe to run standalone if the panel
+# wakes up mid-film (it just cycles back around to black in three presses).
+cinema_display_dim:
+  mode: restart
+  alias: "Cinema: Dim Amp Display"
+  icon: mdi:brightness-4
+  description: "Send the home cinema amp display-dim IR twice so the front panel goes black."
+  sequence:
+    - repeat:
+        count: 2
+        sequence:
+          - action: remote.send_command
+            target:
+              entity_id: remote.ir_universal_remote_hub
+            data:
+              command: "b64:JgBoAAABG48RExATERMREhESERISExA2EBMSEhATEBMRNxE1EDcRExATEBQQNhE2ETYREhI1EDgQNhE2EBMQExETEDcREhATEgAFiwABHEgRAAvrAAEbSRAAC+kAARxJEAAL6wABHEgRAA0F"
+          - delay: 0.5
 
-    - action: light.turn_on
-      target:
-        entity_id: light.hue_color_lamp_2
-      data:
-        brightness_pct: 25
-        color_temp_kelvin: 2500
 # ── System Off ────────────────────────────────────────────────────────────────
 media_system_off:
   mode: restart
@@ -106,6 +161,19 @@ media_system_off:
   icon: mdi:power
   description: "Turn everything off. Discrete IR off commands — safe to repeat."
   sequence:
+    # Snapshot whatever ambient lighting the lamp is showing *before* we touch
+    # it — same reasoning as Audio mode's blue indicator: this lamp doubles as
+    # room ambience, and turning the media system off shouldn't leave it stuck
+    # off. Must run first, before the lamp is touched at all.
+    - action: scene.create
+      data:
+        scene_id: off_mode_lamp_restore
+        snapshot_entities:
+          - light.hue_color_lamp_2
+    # Off indicator — instant ack, before the slower mxn10/IR/TV shell steps.
+    - action: light.turn_off
+      target:
+        entity_id: light.hue_color_lamp_2
     # Always turn off MXN10
     - action: rest_command.mxn10_power_off
     # Always turn off home cinema amp (discrete IR off)
@@ -115,6 +183,10 @@ media_system_off:
       data:
         command: "b64:JgBIAAABHY8REhATERMREhESERMQFBE1ERISEhETEBMRNhE1ETcREhA3EDYRNxA2ETYRExATETYQExESERQQExATEDcQNhETEgANBQ=="
     - delay: 0.5
+    # Snapshot what's on screen before killing power (best-effort — TV may
+    # already be off, in which case this is a harmless no-op)
+    - action: shell_command.tv_save_activity
+      continue_on_error: true
     # Turn off TV via discrete IR off (always safe to send)
     - action: shell_command.tv_power_off
       continue_on_error: true
@@ -124,9 +196,18 @@ media_system_off:
         entity_id: input_select.media_system_mode
         option: "Off"
 
-    - action: light.turn_off
-      target:
-        entity_id: light.hue_color_lamp_2
+    - delay:
+        seconds: 10
+    # Only restore if we're still Off — if another mode press came in during
+    # the wait, that mode's own lamp state already owns the lamp.
+    - if:
+        - condition: state
+          entity_id: input_select.media_system_mode
+          state: "Off"
+      then:
+        - action: scene.turn_on
+          target:
+            entity_id: scene.off_mode_lamp_restore
 # ── Toggle TV (long-press override) ──────────────────────────────────────────
 toggle_tv:
   mode: restart
@@ -140,8 +221,12 @@ toggle_tv:
       then:
         # TV is off → discrete IR on
         - action: script.tv_wake
+        - action: shell_command.tv_clear_nag
+          continue_on_error: true
       else:
-        # TV is on → discrete IR off
+        # TV is on → save what's showing, then discrete IR off
+        - action: shell_command.tv_save_activity
+          continue_on_error: true
         - action: shell_command.tv_power_off
           continue_on_error: true
 # ── Volume Up (Tap — short press) ────────────────────────────────────────────
@@ -253,7 +338,11 @@ toggle_media_mode:
   mode: restart
   alias: "Toggle Media Mode"
   icon: mdi:swap-horizontal
-  description: "Cycle through Off → Audio → Cinema → Off."
+  description: "Cycle through Off → Audio → Cinema → (3rd press) resume last program, then back to Audio."
+  # Everything below is fire-and-forget (script.turn_on) so this — and the
+  # single-mode dimmer automation that calls it — returns instantly. Awaiting
+  # the ~30s Cinema startup made the automation drop presses as "already
+  # running", which is why the resume press was hit and miss.
   sequence:
     - choose:
         - conditions:
@@ -261,19 +350,51 @@ toggle_media_mode:
               entity_id: input_select.media_system_mode
               state: "Off"
           sequence:
-            - action: script.activate_audio_mode
+            - action: script.turn_on
+              target:
+                entity_id: script.activate_audio_mode
         - conditions:
             - condition: state
               entity_id: input_select.media_system_mode
               state: "Audio"
           sequence:
-            - action: script.activate_cinema_mode
+            - action: script.turn_on
+              target:
+                entity_id: script.activate_cinema_mode
+        # 3rd press: first time back at Cinema this session → offer resume
+        # instead of cycling away, then mark it used.
+        - conditions:
+            - condition: and
+              conditions:
+                - condition: state
+                  entity_id: input_select.media_system_mode
+                  state: "Cinema"
+                - condition: state
+                  entity_id: input_boolean.cinema_resume_used
+                  state: "off"
+          sequence:
+            - action: input_boolean.turn_on
+              target:
+                entity_id: input_boolean.cinema_resume_used
+            - action: script.turn_on
+              target:
+                entity_id: script.resume_tv_program
+        # 4th+ press while still in Cinema (resume already offered) → back to Audio
         - conditions:
             - condition: state
               entity_id: input_select.media_system_mode
               state: "Cinema"
           sequence:
-            - action: script.media_system_off
+            # Nothing awaits these any more, so stop them explicitly rather
+            # than letting a half-finished Cinema startup fight Audio mode.
+            - action: script.turn_off
+              target:
+                entity_id:
+                  - script.activate_cinema_mode
+                  - script.resume_tv_program
+            - action: script.turn_on
+              target:
+                entity_id: script.activate_audio_mode
 
 # ── TV wake helper (WoL → wait → API On) ─────────────────────────────────────
 # Philips Android TVs drop to deep standby a few seconds after power-off; the
@@ -292,4 +413,29 @@ tv_wake:
     - delay:
         milliseconds: 1500
     - action: shell_command.tv_power_on
+      continue_on_error: true
+
+# ── Resume Last TV Program ───────────────────────────────────────────────────
+# Relaunches whatever app/activity (including the built-in live TV tuner) was
+# on screen the last time the TV was turned off, via tv_save_activity /
+# tv_resume_activity (see homeassistant/tv_resume.sh).
+resume_tv_program:
+  mode: restart
+  alias: "TV: Resume Last Program"
+  icon: mdi:play-circle
+  description: "Wake the TV if needed, then relaunch whatever was on screen when it was last turned off (clearing the consent nag if it appears)."
+  sequence:
+    # Instant "got it" — the relaunch itself can take 10-30s after a wake.
+    - action: light.turn_on
+      target:
+        entity_id: light.hue_color_lamp_2
+      data:
+        flash: short
+      continue_on_error: true
+    # Always wake: the Cast media_player lags real TV state by a minute or
+    # more, and WoL + power-On is a no-op on a TV that's already on.
+    # tv_resume.sh then waits until the TV really reports On before launching.
+    - action: script.tv_wake
+      continue_on_error: true
+    - action: shell_command.tv_resume_activity
       continue_on_error: true

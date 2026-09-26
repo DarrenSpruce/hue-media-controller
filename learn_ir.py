@@ -108,6 +108,7 @@ def main():
         ("home_cinema", "power_off", "Home Cinema Power OFF"),
         ("home_cinema", "volume_up", "Home Cinema Volume UP"),
         ("home_cinema", "volume_down", "Home Cinema Volume DOWN"),
+        ("home_cinema", "display_dim", "Home Cinema Display DIM (front-panel brightness)"),
         ("audio_switch", "input_tv", "Audio/TV Switch → TV/Cinema input"),
         ("audio_switch", "input_streamer", "Audio/TV Switch → Streamer/Music input"),
     ]

@@ -13,9 +13,10 @@ reboots/network blips much better than a custom Python service.
 
 | File | Purpose |
 |------|---------|
-| `configuration.yaml.example` | The `input_select` mode state, `rest_command` for MXN10 HTTP API, `shell_command` for the Philips TV digest-auth API, and the `wake_on_lan:` integration. Copy to `configuration.yaml` and fill in the placeholders. |
+| `configuration.yaml.example` | The `input_select` mode state, `rest_command` for MXN10 HTTP API, `shell_command` for the Philips TV digest-auth API (incl. save/resume activity), the `wake_on_lan:` integration, and the `timer`/`input_boolean` helpers used for OFF double-press-confirm and Cinema resume tracking. Copy to `configuration.yaml` and fill in the placeholders. |
 | `automations.yaml` | Dimmer button → script wiring (4 buttons × event types). |
-| `scripts.yaml` | `activate_audio_mode`, `activate_cinema_mode`, `media_system_off`, `toggle_media_mode`, `toggle_tv`, `tv_wake` (WoL + power-on), and the volume tap/hold scripts. |
+| `scripts.yaml` | `activate_audio_mode`, `activate_cinema_mode`, `media_system_off`, `toggle_media_mode`, `toggle_tv`, `tv_wake` (WoL + power-on), `resume_tv_program`, `cinema_display_dim`, and the volume tap/hold scripts. |
+| `tv_resume.sh` | Shell helper (curl + jq, run inside the HA container) that snapshots the TV's current app before power-off, relaunches it on resume, and clears the consent nag screen (see below). Deploy alongside `configuration.yaml` at `/home/pi/homeassistant/tv_resume.sh` and `chmod +x` it once. |
 
 ## Architecture
 
@@ -47,16 +48,19 @@ Hue Dimmer ──Zigbee──▶ Hue Bridge ──SSE──▶ Home Assistant (P
 |---------|------------------------------------------------------------------------|-----------------|
 | Off     | Everything off. TV via `shell_command.tv_power_off`.                  | Off             |
 | Audio   | MXN10 on via `rest_command`. Audio switch IR → streamer input.        | Dim blue        |
-| Cinema  | MXN10 power-cycled (wakes the Harman). `script.tv_wake` (WoL + API On). Harman power-on IR. Audio switch IR → TV input. | Dim warm white  |
+| Cinema  | MXN10 power-cycled (wakes the Harman). `script.tv_wake` (WoL + API On). Harman power-on IR. Audio switch IR → TV input. Harman display dimmed to black (IR × 2). | Dim warm white  |
 
 ## Buttons
 
-| Button     | Off                                | Audio                | Cinema               |
-|------------|------------------------------------|----------------------|----------------------|
-| **ON** (short press) | → Audio                           | → Cinema             | → Off                |
+| Button     | Off                                | Audio                | Cinema                                    |
+|------------|------------------------------------|-----------------------|--------------------------------------------|
+| **ON** (short press) | → Audio                 | → Cinema             | 1st press: resume last program (stays Cinema). 2nd+ press: → Audio |
 | **DIM UP**  | (ignored)                         | MXN10 +3 (tap) / +1 (hold) | Harman IR vol+   |
 | **DIM DOWN**| (ignored)                         | MXN10 -3 / -1        | Harman IR vol-       |
-| **OFF**    | Shutdown sequence                  | Shutdown sequence    | Shutdown sequence    |
+| **OFF**    | Press twice within 3s to confirm shutdown (single press is ignored) — same in every mode |
+
+The phone/Siri remote (`webapp/`) also has a standalone **Resume** button that
+calls `script.resume_tv_program` directly, independent of the mode cycle.
 
 ## Hardening choices
 
@@ -71,6 +75,14 @@ Why MXN10 control bypasses the native `cambridge_audio` / Cast integration:
   `rest_command` against the MXN10's local `/smoip/zone/state` HTTP API is
   rock-solid because it talks to the device directly with no persistent socket.
 
+Why there's a `tv_clear_nag` step after every TV wake:
+- The built-in live-TV app (`org.droidtv.playtv`) immediately bounces to a
+  per-partner terms-approval screen (`org.droidtv.nettvregistration`) — with
+  hundreds of partners, approving them isn't practical. Streaming apps aren't
+  affected. The script watches for that screen for ~16s after wake/resume and
+  presses Home only if it appears (what you'd do with the physical remote).
+  `save` also refuses to record it as the "last program".
+
 Why TV power-on needs `script.tv_wake`:
 - Philips Android TVs drop to deep standby a few seconds after power-off; the
   JointSpace API socket goes away with it. A WoL magic packet wakes the network
@@ -83,7 +95,8 @@ Why TV power-on needs `script.tv_wake`:
 ```bash
 # From this folder, copy the sanitized yaml to the Pi and fill in real values
 scp configuration.yaml.example pi@<pi-ip>:/home/pi/homeassistant/configuration.yaml
-scp scripts.yaml automations.yaml pi@<pi-ip>:/home/pi/homeassistant/
+scp scripts.yaml automations.yaml tv_resume.sh pi@<pi-ip>:/home/pi/homeassistant/
+ssh pi@<pi-ip> chmod +x /home/pi/homeassistant/tv_resume.sh
 
 # Edit on the Pi to add real credentials (digest auth from pair_tv.py output)
 ssh pi@<pi-ip> sudo nano /home/pi/homeassistant/configuration.yaml

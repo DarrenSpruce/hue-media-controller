@@ -60,6 +60,28 @@ shell_command:
     -H 'Content-Type: application/json'
     -X POST -d '{"powerstate":"Standby"}'
     https://<TV_IP>:1926/6/powerstate
+  # "Resume last program": save.sh snapshots the running app just before
+  # power-off; resume.sh looks it up in /6/applications and relaunches it.
+  # Deploy tv_resume.sh alongside this file (it lands at /config/tv_resume.sh
+  # inside the container) and `chmod +x` it once.
+  tv_save_activity: >-
+    /config/tv_resume.sh save <TV_IP> '<TV_USERNAME>' '<TV_PASSWORD>'
+  tv_resume_activity: >-
+    /config/tv_resume.sh resume <TV_IP> '<TV_USERNAME>' '<TV_PASSWORD>'
+  # The live-TV app pops a partner-consent nag on start. Watches for it for
+  # ~16s after wake and presses Home only if it actually appears.
+  tv_clear_nag: >-
+    /config/tv_resume.sh clear-nag <TV_IP> '<TV_USERNAME>' '<TV_PASSWORD>'
 
 # Wake-on-LAN integration (needed for Philips TV deep-standby wake)
 wake_on_lan:
+
+# ─── Double-press-to-confirm OFF, and one-shot Cinema resume ─────────────────
+timer:
+  off_confirm:
+    duration: "00:00:03"
+
+input_boolean:
+  cinema_resume_used:
+    name: "Cinema: resume already offered this session"
+    icon: mdi:play-circle-outline
